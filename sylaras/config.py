@@ -21,6 +21,10 @@ class Config:
         config.jitter = float(data['jitter'])
         config.output_path = pathlib.Path(data['output_path']).resolve()
         return config
+    #
+    # @property
+    # def intermediate_path(self):
+    #     return self.output_path / 'intermediate'
 
     def __repr__(self):
         kwargs_str = ', '.join(f"{k}={v!r}" for k, v in self.__dict__.items())

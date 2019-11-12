@@ -1,4 +1,5 @@
 import logging
+import functools
 import pandas as pd
 import numpy as np
 import os
@@ -8,16 +9,48 @@ import matplotlib.pyplot as plt
 logger = logging.getLogger(__name__)
 
 
-def banner(msg):
-    logger.info('=' * 70)
-    logger.info(msg)
-    logger.info('=' * 70)
+# Pipeline module order, to be filled in by the @module decorator.
+pipeline_modules = []
 
 
-# generate a random sample of data weighted by tissue
-def random_subset(data, config):
+def module(func):
+    """
+    Annotation for pipeline module functions.
 
-    banner('RUNNING MODULE: random_subset')
+    This function adds the given function to the registry list. It also wraps
+    the given function to log a pre/post-call banner.
+
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        print("in wrapper")
+        logger.info("=" * 70)
+        logger.info("RUNNING MODULE: %s", func.__name__)
+        result = func(*args, **kwargs)
+        logger.info("=" * 70)
+        logger.info("")
+        return result
+    pipeline_modules.append(wrapper)
+    return wrapper
+
+
+def save_data(data, path, **kwargs):
+    """
+    Save a DataFrame as csv, creating all intermediate directories.
+
+    Extra kwargs will be passed through to pandas.DataFrame.to_csv.
+
+    """
+
+    if not path.name.endswith(".csv"):
+        raise ValueError("Path must end with .csv")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data.to_csv(path, **kwargs)
+
+
+@module
+def weighted_random_sample(data, config):
+    """Generate a random sample of data, weighted by tissue"""
 
     # Calculate random sample weighting to normalize cell counts by tissue.
     groups = data.groupby('tissue')
@@ -35,13 +68,17 @@ def random_subset(data, config):
     )
     sample.reset_index(drop=True, inplace=True)
 
+    save_data(
+        sample,
+        config.output_path / 'weighted_random_sample' / 'wrs.csv'
+    )
+
     return sample
 
 
-# generate kernel/jittered subsets of data sample
+#@module
 def gate_bias(sample, config):
-
-    banner('RUNNING MODULE: gate_bias')
+    """Generate kernel/jittered subsets of data."""
 
     # get the kernel DataFrame
     kernel_frame = sample.copy()
@@ -114,11 +151,11 @@ def gate_bias(sample, config):
     sns.set(style='white')
     for channel in config.id_channels:
         for key, value in kernel_dict.items():
-                if key.endswith(channel):
-                    print('Plotting ' + key)
-                    value = value.dropna()
-                    ax = sns.distplot(value, kde=True, hist=False,
-                                      kde_kws={'lw': 2.0}, label=key)
+            if key.endswith(channel):
+                print('Plotting ' + key)
+                value = value.dropna()
+                ax = sns.distplot(value, kde=True, hist=False,
+                                  kde_kws={'lw': 2.0}, label=key)
         ax.set_ylabel('density')
         ax.set_xlabel('signal intensity')
         ax.get_yaxis().set_visible(True)
@@ -194,10 +231,9 @@ def gate_bias(sample, config):
     return final_frames_dict
 
 
-# binarize kernel/jittered subsets of data sample
+#@module
 def data_discretization(df_dict, config):
-
-    banner('RUNNING MODULE: data_discretization')
+    """Binarize kernel/jittered subsets of data."""
 
     Boo_frames_dict = {}
     for name, frame in df_dict.items():

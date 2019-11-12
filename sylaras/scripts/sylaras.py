@@ -1,9 +1,13 @@
 import sys
 import argparse
 import pathlib
+import logging
 import pandas as pd
 from ..config import Config
 from .. import components
+
+
+logger = logging.getLogger(__name__)
 
 
 def main(argv=sys.argv):
@@ -22,11 +26,20 @@ def main(argv=sys.argv):
     if not validate_paths(args):
         return 1
 
-    config = Config.from_path(args.config)
-    create_output_folder(config)
+    logging.basicConfig(level=logging.INFO)
 
+    logger.info("Reading configuration file")
+    config = Config.from_path(args.config)
+    create_output_directory(config)
+
+    logger.info("Loading input data file")
     data = pd.read_csv(args.data)
-    data2 = components.random_subset(data, config)
+
+    logger.info("Executing pipeline")
+    for module in components.pipeline_modules:
+        data = module(data, config)
+
+    logger.info("Finished")
 
     return 0
 
@@ -53,6 +66,6 @@ def validate_paths(args):
     return ok
 
 
-def create_output_folder(config):
-    """Create the output folder given the configuration object."""
+def create_output_directory(config):
+    """Create the output directory structure given the configuration object."""
     config.output_path.mkdir(parents=True, exist_ok=True)
