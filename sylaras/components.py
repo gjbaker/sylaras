@@ -85,11 +85,12 @@ def weighted_random_sample(data, config):
         random_state=config.random_seed, axis=0
     )
     sample.reset_index(drop=True, inplace=True)
+    # Reorder id_columns to match order specified in config.
+    meta_columns = sample.columns.difference(config.id_channels)
+    new_columns = meta_columns.union(config.id_channels, sort=False)
+    sample = sample[new_columns]
 
-    save_data(
-        config.output_path / 'weighted_random_sample' / 'wrs.csv',
-        sample
-    )
+    save_data(config.filtered_data_path / 'full.csv', sample)
 
     return sample
 
