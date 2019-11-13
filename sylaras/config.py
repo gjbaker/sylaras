@@ -34,6 +34,10 @@ class Config:
     def filtered_data_path(self):
         return self.output_path / 'filtered_data'
 
+    @property
+    def figure_path(self):
+        return self.output_path / 'figures'
+
     def __repr__(self):
         kwargs_str = ', '.join(f"{k}={v!r}" for k, v in self.__dict__.items())
         return f"Config({kwargs_str})"

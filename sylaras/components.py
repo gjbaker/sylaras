@@ -91,7 +91,7 @@ def weighted_random_sample(data, config):
     new_columns = meta_columns.union(config.id_channels, sort=False)
     sample = sample[new_columns]
 
-    save_data(config.filtered_data_path / 'full.csv', sample)
+    save_data(config.filtered_data_path / 'full.csv', sample, index=False)
 
     return sample
 
@@ -138,10 +138,10 @@ def gate_bias(data, config):
         ax.set_xlabel('signal intensity')
         ax.get_yaxis().set_visible(True)
         ax.legend()
-        save_figure(config.output_path / "gate_plots" / f"{channel}.pdf")
+        save_figure(config.figure_path / f"gate_{channel}.pdf")
         plt.close('all')
 
-    output_path = config.output_path / 'filtered_data'
+    output_path = config.filtered_data_path
     save_data(output_path / 'kernel.csv', kernel, index=False)
     save_data(output_path / 'kernel_bias.csv', kernel_bias, index=False)
 
@@ -157,72 +157,22 @@ def gate_bias(data, config):
     return result
 
 
-#@module
-def data_discretization(df_dict, config):
-    """Binarize kernel/jittered subsets of data."""
+@module
+def data_discretization(data, config):
+    """Binarize data."""
 
-    Boo_frames_dict = {}
-    for name, frame in df_dict.items():
-        channel_columns = {}
-        for channel in config.id_channels:
-            channel_columns[channel] = frame.loc[:, channel].values
-        print()
-        for key, value in channel_columns.items():
-            print('Converting ' + key + ' protein expression data into its '
-                  'Boolean representation in the ' + name + ' DataFrame.')
-            for i, v in enumerate(value):
-                if v > 0:
-                    value[i] = 1
-                elif v <= 0:
-                    value[i] = 0
-        Boo_data = frame.iloc[:, config.id_channels].astype(int)
-        config.id_channels.sort()
-        Boo_data = Boo_data[config.id_channels]
-        channel_list_update_dict = {
-            'b220': 'B220', 'cd45': 'CD45', 'cd11b': 'CD11b', 'cd11c': 'CD11c',
-            'cd3e': 'CD3e', 'cd4': 'CD4', 'cd49b': 'CD49b', 'cd8': 'CD8a',
-            'f480': 'F480', 'ly6c': 'Ly6C', 'ly6g': 'Ly6G'}
-        Boo_data1 = Boo_data.rename(columns=channel_list_update_dict)
-        Boo_data2 = pd.concat([frame.iloc[:, 0:7], Boo_data1,
-                              frame.iloc[:, 18:20]], axis=1)
+    data_bool = data[config.id_channels] > 0
+    data_bool.columns += "_b"
+    data = pd.concat([data, data_bool], axis=1)
+    save_data(config.filtered_data_path / 'overall.csv', data, index=False)
 
-        # correct for CD49b in blood
-        NK = Boo_data2['CD49b'][
-            ((Boo_data2['B220'] == 0) & (Boo_data2['CD11b'] == 1) &
-             (Boo_data2['CD11c'] == 0) & (Boo_data2['CD3e'] == 0) &
-             (Boo_data2['CD4'] == 0) & (Boo_data2['CD45'] == 1) &
-             (Boo_data2['CD49b'] == 1) & (Boo_data2['CD8a'] == 0) &
-             (Boo_data2['F480'] == 0) & (Boo_data2['Ly6C'] == 0) &
-             (Boo_data2['Ly6G'] == 0))]
+    data_bool_unique = data_bool.drop_duplicates()
+    data_bool_unique.columns = config.id_channels
+    g = sns.clustermap(data_bool_unique)
+    for label in g.ax_heatmap.get_xticklabels():
+        label.set_rotation(45)
+    g.ax_heatmap.set_yticks([])
+    save_figure(config.figure_path / 'unique_vectors.pdf')
+    plt.close('all')
 
-        non_NK = Boo_data2['CD49b'][
-            ~((Boo_data2['B220'] == 0) & (Boo_data2['CD11b'] == 1) &
-              (Boo_data2['CD11c'] == 0) & (Boo_data2['CD3e'] == 0) &
-              (Boo_data2['CD4'] == 0) & (Boo_data2['CD45'] == 1) &
-              (Boo_data2['CD49b'] == 1) & (Boo_data2['CD8a'] == 0) &
-              (Boo_data2['F480'] == 0) & (Boo_data2['Ly6C'] == 0) &
-              (Boo_data2['Ly6G'] == 0))]
-
-        non_NK[:] = 0
-
-        new_cd49b_col = non_NK.append(NK).sort_index()
-
-        del NK
-        del non_NK
-
-        Boo_data2['CD49b'] = new_cd49b_col
-
-        Boo_frames_dict[name] = Boo_data2
-
-        channel_list_update = list(channel_list_update_dict.values())
-        channel_list_update.sort()
-        unique_vectors = Boo_data2.drop_duplicates(channel_list_update)
-
-        g = sns.heatmap(unique_vectors.loc[:, channel_list_update])
-        for item in g.get_yticklabels():
-            item.set_rotation(90)
-        # plt.savefig(name + '_unique_vectors' + '.pdf')
-        plt.close('all')
-    print()
-
-    return Boo_frames_dict, channel_list_update
+    return data
