@@ -23,7 +23,6 @@ def module(func):
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        print("in wrapper")
         logger.info("=" * 70)
         logger.info("RUNNING MODULE: %s", func.__name__)
         result = func(*args, **kwargs)
@@ -34,7 +33,7 @@ def module(func):
     return wrapper
 
 
-def save_data(data, path, **kwargs):
+def save_data(path, data, **kwargs):
     """
     Save a DataFrame as csv, creating all intermediate directories.
 
@@ -46,6 +45,25 @@ def save_data(data, path, **kwargs):
         raise ValueError("Path must end with .csv")
     path.parent.mkdir(parents=True, exist_ok=True)
     data.to_csv(path, **kwargs)
+
+
+def save_figure(path, figure=None, **kwargs):
+    """
+    Save a matplotlib figure as pdf, creating all intermediate directories.
+
+    A figure may be passed explicitly, or the matplotlib current figure will
+    be used.
+
+    Extra kwargs will be passed through to matplotlib.pyplot.savefig.
+
+    """
+
+    if not path.name.endswith(".pdf"):
+        raise ValueError("Path must end with .pdf")
+    if figure is None:
+        figure = plt.gcf()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(str(path), **kwargs)
 
 
 @module
@@ -69,100 +87,52 @@ def weighted_random_sample(data, config):
     sample.reset_index(drop=True, inplace=True)
 
     save_data(
-        sample,
-        config.output_path / 'weighted_random_sample' / 'wrs.csv'
+        config.output_path / 'weighted_random_sample' / 'wrs.csv',
+        sample
     )
 
     return sample
 
 
-#@module
+@module
 def gate_bias(sample, config):
     """Generate kernel/jittered subsets of data."""
 
     # get the kernel DataFrame
-    kernel_frame = sample.copy()
-    for channel in config.id_channels:
-        data = kernel_frame[channel]
-        pct_1 = np.percentile(data, config.kernel_low)
-        pct_99 = np.percentile(data, config.kernel_high)
-        reject = (data < pct_1) | (data > pct_99)
-        kernel_frame.loc[reject, channel] = np.nan
+    kernel = sample[config.id_channels].copy()
+    cutoff_values = np.percentile(
+        kernel, [config.kernel_low, config.kernel_high], axis=0
+    )
+    cutoff = pd.DataFrame(
+        cutoff_values.T, index=kernel.columns, columns=['low', 'high']
+    )
+    kernel.mask(kernel < cutoff['low'], inplace=True)
+    kernel.mask(kernel > cutoff['high'], inplace=True)
 
-    # compute and store the jitter bias per channel in a dictionary
-    jitter_values = {}
-    for channel in config.id_channels:
-        data = sample[channel]
-        value = config.jitter * data.max()
-        jitter_values[data.name] = value
+    kernel_bias = kernel.copy()
+    bias_values = np.abs(kernel_bias.max() * config.jitter)
+    kernel_bias.mask(
+        (kernel_bias < bias_values) & (kernel_bias > -bias_values),
+        inplace=True
+    )
 
-    # get jittered DataFrames by adding or subtracting the jitter biases
-    # to or from their respective channel values.
-    jit_pos_list = []
-    jit_neg_list = []
-    for channel in config.id_channels:
-        plus_data = sample[channel] + jitter_values[channel]
-        minus_data = sample[channel] - jitter_values[channel]
-        jit_pos_list.append(plus_data)
-        jit_neg_list.append(minus_data)
-    sample_jit_pos = pd.concat(jit_pos_list, axis=1)
-    sample_jit_neg = pd.concat(jit_neg_list, axis=1)
-
-    # add metadata columns from sample to jit_pos and jit_neg frames
-    cols = sample.columns.tolist()
-    meta_cols = list(set(cols) - set(config.id_channels))
-    for meta_col in meta_cols:
-        sample_jit_pos[meta_col] = sample[meta_col]
-        sample_jit_neg[meta_col] = sample[meta_col]
-
-    # reorder columns according to sample
-    sample_jit_pos = sample_jit_pos[cols]
-    sample_jit_neg = sample_jit_neg[cols]
-
-    # get kernels of jittered DataFrames
-    jit_pos_kernel_frame = sample_jit_pos.copy()
-    jit_neg_kernel_frame = sample_jit_neg.copy()
-    for frame in [jit_pos_kernel_frame, jit_neg_kernel_frame]:
-        for channel in config.id_channels:
-            data = frame[channel]
-            pct_1 = np.percentile(data, config.kernel_low)
-            pct_99 = np.percentile(data, config.kernel_high)
-            reject = (data < pct_1) | (data > pct_99)
-            frame.loc[reject, channel] = np.nan
-
-    # create a dictionary containing all kernel columns
-    kernel_dict = {}
-    for channel in config.id_channels:
-
-        for (name, data) in zip(
-
-            ['original_' + channel,
-             'back_' + channel,
-             'forward_' + channel],
-
-            [kernel_frame[channel],
-             jit_pos_kernel_frame[channel],
-             jit_neg_kernel_frame[channel]]):
-
-            kernel_dict[name] = data
-
-    # plot kernel distributions for each channel
-
+    # plot distributions for each channel
     sns.set(style='white')
     for channel in config.id_channels:
-        for key, value in kernel_dict.items():
-            if key.endswith(channel):
-                print('Plotting ' + key)
-                value = value.dropna()
-                ax = sns.distplot(value, kde=True, hist=False,
-                                  kde_kws={'lw': 2.0}, label=key)
+        logger.info('Plotting %s', channel)
+        values = kernel[channel].dropna()
+        ax = sns.distplot(
+            values, kde=True, hist=False, kde_kws={'lw': 2.0}, label=channel
+        )
+        ax.axvline(0, lw=1, c="black", label="gate \u00B1 jitter")
+        for f in (1, -1):
+            ax.axvline(bias_values[channel] * f, lw=1, ls=":", c="black")
         ax.set_ylabel('density')
         ax.set_xlabel('signal intensity')
         ax.get_yaxis().set_visible(True)
         ax.legend()
-        # plt.savefig()
+        save_figure(config.output_path / "gate_plots" / f"{channel}.pdf")
         plt.close('all')
-        print()
 
     # remove cells from the sample and kernel DataFrames whose signal
     # intensity values are between -jitter_value and +jitter_value
@@ -178,11 +148,11 @@ def gate_bias(sample, config):
         data_list = []
 
         for key, value in jitter_values.items():
-            data = pd.DataFrame([np.nan if -value <= x <= value
+            col = pd.DataFrame([np.nan if -value <= x <= value
                                 else x for x in data[key].values])
 
-            data.columns = [key]
-            data_list.append(data)
+            col.columns = [key]
+            data_list.append(col)
         filter_frame = pd.concat(data_list, axis=1)
         filter_dict[name] = filter_frame
 
@@ -213,9 +183,11 @@ def gate_bias(sample, config):
     kernel_frame.dropna(axis=0, how='any', thresh=None, subset=None,
                         inplace=True)
 
-    kernel_frame.to_csv(
-        os.path.join(
-            config['aggregate_data_dir'], 'FULL_KERNEL_data.csv'), index=False)
+    output_path = config.output_path / 'aggregate_datasets'
+
+    save_data(
+        output_path / 'FULL_KERNEL_data.csv', kernel, index=False
+    )
 
     # create a dictionary containing sample, kernel, jittered, and
     # kernel_jittered datasets
