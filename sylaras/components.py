@@ -5,6 +5,7 @@ import numpy as np
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt
+from .config import FilterChoice
 
 logger = logging.getLogger(__name__)
 
@@ -96,11 +97,11 @@ def weighted_random_sample(data, config):
 
 
 @module
-def gate_bias(sample, config):
+def gate_bias(data, config):
     """Generate kernel/jittered subsets of data."""
 
     # get the kernel DataFrame
-    kernel = sample[config.id_channels].copy()
+    kernel = data[config.id_channels].copy()
     cutoff_values = np.percentile(
         kernel, [config.kernel_low, config.kernel_high], axis=0
     )
@@ -113,17 +114,22 @@ def gate_bias(sample, config):
     kernel_bias = kernel.copy()
     bias_values = np.abs(kernel_bias.max() * config.jitter)
     kernel_bias.mask(
-        (kernel_bias < bias_values) & (kernel_bias > -bias_values),
+        (kernel_bias > -bias_values) & (kernel_bias < bias_values),
         inplace=True
     )
+
+    meta_columns = data.columns.difference(config.id_channels)
+    data_meta = data[meta_columns]
+    kernel = pd.concat([data_meta, kernel], axis=1).dropna()
+    kernel_bias = pd.concat([data_meta, kernel_bias], axis=1).dropna()
 
     # plot distributions for each channel
     sns.set(style='white')
     for channel in config.id_channels:
         logger.info('Plotting %s', channel)
-        values = kernel[channel].dropna()
         ax = sns.distplot(
-            values, kde=True, hist=False, kde_kws={'lw': 2.0}, label=channel
+            kernel[channel], kde=True, hist=False, kde_kws={'lw': 2.0},
+            label=channel
         )
         ax.axvline(0, lw=1, c="black", label="gate \u00B1 jitter")
         for f in (1, -1):
@@ -135,73 +141,20 @@ def gate_bias(sample, config):
         save_figure(config.output_path / "gate_plots" / f"{channel}.pdf")
         plt.close('all')
 
-    # remove cells from the sample and kernel DataFrames whose signal
-    # intensity values are between -jitter_value and +jitter_value
-    sample_copy = sample.copy()
-    kernel_frame_copy = kernel_frame.copy()
+    output_path = config.output_path / 'filtered_data'
+    save_data(output_path / 'kernel.csv', kernel, index=False)
+    save_data(output_path / 'kernel_bias.csv', kernel_bias, index=False)
 
-    filter_dict = {}
-    for (name, data) in zip(
+    choices = {
+        FilterChoice['full']: data,
+        FilterChoice['kernel']: kernel,
+        FilterChoice['kernel_bias']: kernel_bias,
+    }
+    assert set(choices) == set(FilterChoice), \
+        "Did not handle all FilterChoices"
+    result = choices[config.filter_choice]
 
-      ['FULL', 'FULL_KERNEL'],
-      [sample_copy, kernel_frame_copy]):
-
-        data_list = []
-
-        for key, value in jitter_values.items():
-            col = pd.DataFrame([np.nan if -value <= x <= value
-                                else x for x in data[key].values])
-
-            col.columns = [key]
-            data_list.append(col)
-        filter_frame = pd.concat(data_list, axis=1)
-        filter_dict[name] = filter_frame
-
-    # then drop rows containing at least 1 NaN in filter_dict
-    jitter_dict = {}
-    for (name, (key, value)) in zip(
-      ['FULL_JITTERED', 'KERNEL_JITTERED'], filter_dict.items()):
-
-        value.dropna(axis=0, how='any', thresh=None, subset=None, inplace=True)
-
-        value = pd.merge(value, sample, how='left', left_index=True,
-                         right_index=True)
-        y_cols = [c for c in value.columns if '_y' not in c]
-        value = value[y_cols]
-
-        x_cols = [c for c in value.columns if '_x' in c]
-
-        col_dict = dict(zip(x_cols, config.id_channels))
-
-        value = value.rename(columns=col_dict, inplace=False)
-        value = value[sample.columns]
-
-        jitter_dict[key] = value
-        # value.to_csv(
-        #     os.path.join(name + '_data.csv'), index=False)
-
-    # drop rows containing at least 1 NaN kernel_frame
-    kernel_frame.dropna(axis=0, how='any', thresh=None, subset=None,
-                        inplace=True)
-
-    output_path = config.output_path / 'aggregate_datasets'
-
-    save_data(
-        output_path / 'FULL_KERNEL_data.csv', kernel, index=False
-    )
-
-    # create a dictionary containing sample, kernel, jittered, and
-    # kernel_jittered datasets
-    final_frames_dict = {}
-    for (name, data) in zip(
-        ['FULL', 'KERNEL', 'FULL_JITTERED', 'KERNEL_JITTERED'],
-
-        [sample, kernel_frame, jitter_dict['FULL'],
-         jitter_dict['FULL_KERNEL']]):
-
-        final_frames_dict[name] = data
-
-    return final_frames_dict
+    return result
 
 
 #@module

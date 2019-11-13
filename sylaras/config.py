@@ -1,5 +1,12 @@
-import yaml
 import pathlib
+from enum import Enum, auto
+import yaml
+
+
+class FilterChoice(Enum):
+    full = auto()
+    kernel = auto()
+    kernel_bias = auto()
 
 
 class Config:
@@ -19,6 +26,7 @@ class Config:
         config.kernel_low = float(data['kernel_low'])
         config.kernel_high = float(data['kernel_high'])
         config.jitter = float(data['jitter'])
+        config.filter_choice = FilterChoice[data['filter_choice']]
         config.output_path = pathlib.Path(data['output_path']).resolve()
         return config
 

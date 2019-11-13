@@ -10,5 +10,7 @@ kernel_high: 99
 # fraction of positive value range to jitter channel gates
 jitter: 0.05
 
+filter_choice: full
+
 # output_path: .
 output_path: '/Users/greg/projects/gbm_immunosuppression/postbot/data/logicle_e20/orthant_testing'
