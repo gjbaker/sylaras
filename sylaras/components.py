@@ -88,8 +88,13 @@ def weighted_random_sample(data, config):
     sample.reset_index(drop=True, inplace=True)
     # Reorder id_columns to match order specified in config.
     meta_columns = sample.columns.difference(config.id_channels)
-    new_columns = meta_columns.union(config.id_channels, sort=False)
-    sample = sample[new_columns]
+    sample = pd.concat(
+        {
+            'metadata': sample[meta_columns],
+            'data': sample[config.id_channels],
+        },
+        axis=1
+    )
 
     save_data(config.filtered_data_path / 'full.csv', sample, index=False)
 
@@ -101,7 +106,7 @@ def gate_bias(data, config):
     """Generate kernel/jittered subsets of data."""
 
     # get the kernel DataFrame
-    kernel = data[config.id_channels].copy()
+    kernel = data['data'].copy()
     cutoff_values = np.percentile(
         kernel, [config.kernel_low, config.kernel_high], axis=0
     )
@@ -118,18 +123,16 @@ def gate_bias(data, config):
         inplace=True
     )
 
-    meta_columns = data.columns.difference(config.id_channels)
-    data_meta = data[meta_columns]
-    kernel = pd.concat([data_meta, kernel], axis=1).dropna()
-    kernel_bias = pd.concat([data_meta, kernel_bias], axis=1).dropna()
+    kernel = data[kernel.notna().any(axis=1)]
+    kernel_bias = data[kernel_bias.notna().any(axis=1)]
 
     # plot distributions for each channel
     sns.set(style='white')
-    for channel in config.id_channels:
+    for channel in data['data']:
         logger.info('Plotting %s', channel)
         ax = sns.distplot(
-            kernel[channel], kde=True, hist=False, kde_kws={'lw': 2.0},
-            label=channel
+            kernel[('data', channel)], kde=True, hist=False,
+            kde_kws={'lw': 2.0}, label=channel
         )
         ax.axvline(0, lw=1, c="black", label="gate \u00B1 jitter")
         for f in (1, -1):
@@ -161,13 +164,13 @@ def gate_bias(data, config):
 def data_discretization(data, config):
     """Binarize data."""
 
-    data_bool = data[config.id_channels] > 0
-    data_bool.columns += "_b"
+    data_bool = data['data'] > 0
+    # Add a level to the column index.
+    data_bool = pd.concat({'bool': data_bool}, axis=1)
     data = pd.concat([data, data_bool], axis=1)
     save_data(config.filtered_data_path / 'overall.csv', data, index=False)
 
-    data_bool_unique = data_bool.drop_duplicates()
-    data_bool_unique.columns = config.id_channels
+    data_bool_unique = data['bool'].drop_duplicates()
     g = sns.clustermap(data_bool_unique)
     for label in g.ax_heatmap.get_xticklabels():
         label.set_rotation(45)
