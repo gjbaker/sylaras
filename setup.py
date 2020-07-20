@@ -8,6 +8,7 @@ requires = [
     'scipy>=1.3',
     'seaborn>=0.9',
     'pyyaml>=5.1',
+    'pyarrow>=0.15.1',
 ]
 
 VERSION = '0.0.1'

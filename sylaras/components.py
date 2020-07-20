@@ -1,8 +1,8 @@
 import logging
 import functools
+import os
 import pandas as pd
 import numpy as np
-import os
 import seaborn as sns
 import matplotlib.pyplot as plt
 from .config import FilterChoice
@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Pipeline module order, to be filled in by the @module decorator.
 pipeline_modules = []
+pipeline_module_names = []
 
 
 def module(func):
@@ -31,6 +32,7 @@ def module(func):
         logger.info("")
         return result
     pipeline_modules.append(wrapper)
+    pipeline_module_names.append(wrapper.__name__)
     return wrapper
 
 
@@ -65,6 +67,27 @@ def save_figure(path, figure=None, **kwargs):
         figure = plt.gcf()
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(str(path), **kwargs)
+
+
+def log_banner(log_function, msg):
+    """Call log_function with a blank line, msg, and an underline."""
+    log_function("")
+    log_function(msg)
+    log_function("-" * len(msg))
+
+
+def log_multiline(log_function, msg):
+    """Call log_function once for each line of msg."""
+    for line in msg.split("\n"):
+        log_function(line)
+
+
+@module
+def read_data(data, config):
+    """Read the data file specified in the config."""
+    # The data arg to this module is ignored.
+    data = pd.read_csv(config.data_path)
+    return data
 
 
 @module
@@ -166,16 +189,64 @@ def data_discretization(data, config):
 
     data_bool = data['data'] > 0
     # Add a level to the column index.
-    data_bool = pd.concat({'bool': data_bool}, axis=1)
+    data_bool = pd.concat({'boolean': data_bool}, axis=1)
     data = pd.concat([data, data_bool], axis=1)
     save_data(config.filtered_data_path / 'overall.csv', data, index=False)
 
-    data_bool_unique = data['bool'].drop_duplicates()
+    data_bool_unique = data['boolean'].drop_duplicates()
     g = sns.clustermap(data_bool_unique)
     for label in g.ax_heatmap.get_xticklabels():
         label.set_rotation(45)
     g.ax_heatmap.set_yticks([])
     save_figure(config.figure_path / 'unique_vectors.pdf')
     plt.close('all')
+
+    return data
+
+
+@module
+def boolean_classifier(data, config):
+    """Map Boolean vectors to cell states."""
+
+    data[('class', 'boolean')] = None
+    for class_name, terms in config.classes.items():
+        positives = pd.Series(np.ones(len(data), dtype=bool), index=data.index)
+        for term in terms:
+            col = data[('boolean', term.name)]
+            if term.negated:
+                col = ~col
+            positives = positives[col]
+        indexer = (positives.index, ('class', 'boolean'))
+        conflicts = set(data.loc[indexer][data.loc[indexer].notna()])
+        if conflicts:
+            raise ValueError(
+                f"Boolean class '{class_name}' overlaps with {conflicts}"
+            )
+        data.loc[indexer] = class_name
+
+    classified_counts = data.groupby(('class', 'boolean')).size()
+    classified_counts.sort_values(ascending=False, inplace=True)
+    classified_counts.name = 'cell_count'
+    classified_counts.index.name = 'class'
+    classified_counts = classified_counts.reset_index()
+    log_banner(logger.info, "Boolean classifications")
+    log_multiline(logger.info, classified_counts.to_string(index=False))
+
+    pct_classified = classified_counts['cell_count'].sum() / len(data) * 100
+    logger.info("(accounting for %.2f%% of the data)", pct_classified)
+
+    unclassified = data.loc[data['class', 'boolean'].isna(), 'boolean']
+    cols = list(data['boolean'].columns)
+    unclassified_counts = unclassified.groupby(cols).size()
+    unclassified_counts.sort_values(ascending=False, inplace=True)
+    unclassified_counts.name = 'cell_count'
+    unclassified_counts = unclassified_counts.reset_index().astype(int)
+    log_banner(logger.info, "Unspecified boolean classes")
+    log_multiline(logger.info, unclassified_counts.to_string(index=False))
+
+    logger.info(
+        "(accounting for the remaining %.2f%% of the data)",
+        100 - pct_classified
+    )
 
     return data
