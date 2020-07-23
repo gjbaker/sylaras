@@ -250,3 +250,43 @@ def boolean_classifier(data, config):
     )
 
     return data
+
+
+@module
+def frequent_cell_states(data, config):
+    """Identify cell states greater than <alpha> % of cells
+    in one or more samples."""
+
+    cell_states = []
+    for s, total in enumerate(data.groupby(
+      [('metadata', 'tissue'), ('metadata', 'time_point'),
+       ('metadata', 'replicate'), ('metadata', 'status')]
+      )):
+        for name, specific in total[1].groupby([('class', 'boolean')]):
+            specific.reset_index(inplace=True, drop=True)
+            if len(specific)/len(total) >= config.alpha:
+                cell_states.append(
+                    specific.loc[
+                        0, [('class', 'boolean')] +
+                        [('boolean', i) for i in config.id_channels]])
+
+    unique_cell_states = (
+        pd.DataFrame(cell_states)
+        .reset_index(drop=True)
+        .drop_duplicates()
+        .reset_index(drop=True)
+        )
+
+    save_data(
+        config.alpha_vectors_path / f'alpha_vectors_{config.alpha}%.csv',
+        unique_cell_states, index=False
+        )
+
+    # get cell states at alpha cutoff unique to treatment status
+    sets = []
+    for name, group in data.groupby([('metadata', 'status')]):
+        cell_state_set = set(group[('class', 'boolean')])
+        sets.append(cell_state_set)
+    print(set.union(*sets) - set.intersection(*sets))
+
+    return data

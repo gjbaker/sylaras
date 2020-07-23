@@ -1,4 +1,5 @@
-data_path: '/Users/greg/projects/sylaras/test_tiny.csv'
+data_path:  '/Users/greg/projects/sylaras/test_tiny.csv'
+# /Users/greg/projects/gbm_immunosuppression/postbot/data/logicle_e20/orthant/aggregate_datasets/TOTAL_sample.csv
 
 id_channels: [ly6c, cd11c, cd3e, cd45, cd11b, cd4, ly6g, f480, cd49b, cd8, b220]
 other_channels: [fsc, ssc]
@@ -18,6 +19,8 @@ classes:
   B: [b220, ~cd11b, ~cd11c, ~cd3e, ~cd4, cd45, ~cd49b, ~cd8, ~f480, ~ly6c, ~ly6g]
   CD4T: [~b220, ~cd11b, ~cd11c, cd3e, cd4, cd45, ~cd49b, ~cd8, ~f480, ~ly6c, ~ly6g]
 
+# cutoff for cell states populated by >1% of cells in one or more tissues
+alpha: 1.0
 
 # output_path: .
 output_path: '/Users/greg/projects/gbm_immunosuppression/postbot/data/logicle_e20/orthant_testing'

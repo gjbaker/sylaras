@@ -56,8 +56,10 @@ class Config:
         config.kernel_high = float(data['kernel_high'])
         config.jitter = float(data['jitter'])
         config.filter_choice = FilterChoice[data['filter_choice']]
-        config.output_path = pathlib.Path(data['output_path']).resolve()
         config._parse_classes(data['classes'])
+        config.alpha = data['alpha']
+        config.output_path = pathlib.Path(data['output_path']).resolve()
+
         return config
 
     def _parse_classes(self, value):
@@ -85,6 +87,10 @@ class Config:
     @property
     def checkpoint_path(self):
         return self.output_path / 'checkpoints'
+
+    @property
+    def alpha_vectors_path(self):
+        return self.output_path / 'alpha_vectors'
 
     def __repr__(self):
         kwargs_str = ', '.join(f"{k}={v!r}" for k, v in self.__dict__.items())

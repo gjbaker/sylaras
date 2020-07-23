@@ -12,7 +12,7 @@ def save_checkpoint(data, config, module):
     # pyarrow directly, but to_parquet has as an over-zealous validity check on
     # the input dataframe that errors with a column MultiIndex. If that bug is
     # resolved we can switch to use just the following commented line.
-    ## data.to_parquet(path, index=True)
+    # data.to_parquet(path, index=True)
     table = pyarrow.Table.from_pandas(data)
     pyarrow.parquet.write_table(table, path)
 
