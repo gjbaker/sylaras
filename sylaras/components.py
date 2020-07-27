@@ -1,6 +1,7 @@
 import logging
 import functools
 import os
+import shelve
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -67,6 +68,20 @@ def save_figure(path, figure=None, **kwargs):
         figure = plt.gcf()
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(str(path), **kwargs)
+
+
+def open_dashboards(path, **kwargs):
+    """
+    Open Python shelve containing dashboard data
+
+    in dictionary form.
+
+    """
+
+    os.chdir(path)
+    dashboards_shlf = shelve.open('dashboards.shelve', writeback=True)
+
+    return dashboards_shlf
 
 
 def log_banner(log_function, msg):
@@ -288,5 +303,28 @@ def frequent_cell_states(data, config):
         cell_state_set = set(group[('class', 'boolean')])
         sets.append(cell_state_set)
     print(set.union(*sets) - set.intersection(*sets))
+
+    return data
+
+
+@module
+def initialize_dashboards(data, config):
+    """Create a dictionary to store
+    celltype stats for aggregate plot."""
+
+    path = config.dashboards_path
+    path.mkdir(parents=True, exist_ok=True)
+    os.chdir(path)
+
+    dashboards = {}
+    for celltype in set(data[('class', 'boolean')]):
+        if celltype is not None:
+            dashboards[celltype] = {}
+
+    print('Dashboards dictionary initialized.')
+
+    dashboards_shlf = shelve.open('dashboards.shelve')
+    dashboards_shlf.update(dashboards)
+    dashboards_shlf.close()
 
     return data

@@ -92,6 +92,10 @@ class Config:
     def alpha_vectors_path(self):
         return self.output_path / 'alpha_vectors'
 
+    @property
+    def dashboards_path(self):
+        return self.output_path / 'dashboards'
+
     def __repr__(self):
         kwargs_str = ', '.join(f"{k}={v!r}" for k, v in self.__dict__.items())
         return f"Config({kwargs_str})"
