@@ -328,3 +328,37 @@ def initialize_dashboards(data, config):
     dashboards_shlf.close()
 
     return data
+
+
+@module
+def check_celltypes(data, config):
+    """Bi-variate plot of protein expression for
+    selected cell types"""
+
+    test = data[
+        [('data', config.xaxis_marker),
+         ('data', config.yaxis_marker),
+         ('class', 'boolean')]][
+        (data[('metadata', 'tissue')] == 'blood') &
+        (data[('metadata', 'status')] == 'naive') &
+        ((data[('class', 'boolean')] == config.celltype1) |
+         (data[('class', 'boolean')] == config.celltype2))]
+
+    color_dict = {
+        config.celltype1: 'b',
+        config.celltype2: 'orange'}
+
+    color_list = [color_dict[i] for i in test[('class', 'boolean')]]
+
+    sns.set_style('whitegrid')
+    plt.scatter(
+        test[('data', config.xaxis_marker)],
+        test[('data', config.yaxis_marker)],
+        c=color_list, s=1.5
+        )
+    plt.xlabel(config.xaxis_marker)
+    plt.ylabel(config.yaxis_marker)
+
+    save_figure(config.figure_path / 'celltype_scatter.pdf')
+
+    return data

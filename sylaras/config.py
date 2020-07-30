@@ -57,8 +57,12 @@ class Config:
         config.jitter = float(data['jitter'])
         config.filter_choice = FilterChoice[data['filter_choice']]
         config._parse_classes(data['classes'])
-        config.alpha = data['alpha']
+        config.alpha = float(data['alpha'])
         config.output_path = pathlib.Path(data['output_path']).resolve()
+        config.celltype1 = str(data['celltype1'])
+        config.celltype2 = str(data['celltype2'])
+        config.xaxis_marker = str(data['xaxis_marker'])
+        config.yaxis_marker = str(data['yaxis_marker'])
 
         return config
 
