@@ -6,6 +6,8 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 from .config import FilterChoice
 
 logger = logging.getLogger(__name__)
@@ -360,5 +362,122 @@ def check_celltypes(data, config):
     plt.ylabel(config.yaxis_marker)
 
     save_figure(config.figure_path / 'celltype_scatter.pdf')
+
+    plt.close('all')
+
+    return data
+
+
+@module
+def frequency_barcharts(data, config):
+    """plot cell frequency barcharts with SEM bars"""
+
+    metadata_cols = [
+        i for i in data.columns if i[1] in
+        ['time_point', 'tissue', 'status', 'replicate']
+        ]
+
+    per_well_counts = (
+        data
+        .groupby(metadata_cols + [('class', 'boolean')])
+        .size()
+        .replace(to_replace='NaN', value=0)
+        .astype(int)
+        )
+
+    per_well_percentages = (
+        per_well_counts.groupby(metadata_cols)
+        .apply(lambda x: (x / x.sum())*100)
+        )
+
+    replicate_groupby_obj = (
+        per_well_percentages
+        .groupby(
+            [i for i in metadata_cols if i[1] != 'replicate'] +
+            [('class', 'boolean')])
+        )
+
+    plot_input = pd.concat(
+        [replicate_groupby_obj.mean(), replicate_groupby_obj.sem()], axis=1
+        )
+    plot_input.rename(columns={0: 'mean', 1: 'sem'}, inplace=True)
+
+    # pad missing cell types with 0.0 for mean and SEM
+    padded_index = pd.MultiIndex.from_product(
+        [data['metadata', 'status'].unique(),
+         data['metadata', 'time_point'].unique(),
+         data['metadata', 'tissue'].unique(),
+         list(config.classes.keys())],
+        names=[i for i in metadata_cols if i[1] != 'replicate'] +
+        [('class', 'boolean')]
+        )
+    plot_input = plot_input.reindex(padded_index, fill_value=0.0)
+
+    for (time_point_name, tissue_name), group in plot_input.groupby(
+      [i for i in metadata_cols if i[1] in ['time_point', 'tissue']]
+      ):
+
+        print(
+            f'Plotting barcharts for {tissue_name} at '
+            f'time point {time_point_name}.'
+            )
+
+        group.sort_index(
+            level=[('class', 'boolean'), ('metadata', 'status')],
+            ascending=[True, False], inplace=True
+            )
+
+        sns.set_style('whitegrid')
+        g = group['mean'].plot(
+            yerr=group['sem'], kind='bar', grid=False, width=0.78, linewidth=1,
+            figsize=(20, 10), color=['b', 'g'], alpha=0.6,
+            title=f'{tissue_name}, {time_point_name}'
+            )
+
+        xlabels = [
+            item.get_text() for item in g.get_xticklabels()]
+        xlabels_update = [
+            i.strip('()').split(',')[-1].strip(' ') for i in xlabels
+            ]
+        xlabels_update = [xlabel.replace(
+            'neg', '$^-$').replace('pos', '$^+$') for xlabel in xlabels_update]
+        g.set_xticklabels(xlabels_update)
+
+        for item in g.get_xticklabels():
+            item.set_size(15)
+            item.set_weight('normal')
+
+        for item in g.get_yticklabels():
+            item.set_size(15)
+
+        g.set_xlabel(xlabel='', size=18, weight='bold')
+        g.set_ylabel(ylabel='% tissue composition', size=18, weight='bold')
+        g.set_ylim(0.0, 100.0)
+
+        g.grid(color='grey', linestyle='--', linewidth=0.5, alpha=0.5)
+        g.xaxis.grid(False)
+
+        g.set_title(g.get_title(), size=18, weight='bold', y=1.02)
+
+        legend_elements = [
+            Patch(facecolor='b', edgecolor='b', label='naive'),
+            Patch(facecolor='g', edgecolor='g', label='gl261')
+            ]
+        legend_text_properties = {'size': 20, 'weight': 'bold'}
+        plt.legend(
+            handles=legend_elements,
+            prop=legend_text_properties,
+            loc='upper right'
+            )
+
+        plt.tight_layout()
+
+        save_figure(
+            config.figure_path /
+            'frequency_barcharts' /
+            f'{tissue_name}_{time_point_name}.pdf'
+            )
+
+        plt.close('all')
 
     return data
