@@ -1,13 +1,21 @@
 import logging
 import functools
+
 import os
 import shelve
 import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+
+from scipy.stats import ttest_ind
+
+from rpy2.robjects.packages import importr
+from rpy2.robjects.vectors import FloatVector
+
 from .config import FilterChoice
 
 logger = logging.getLogger(__name__)
@@ -104,6 +112,7 @@ def read_data(data, config):
     """Read the data file specified in the config."""
     # The data arg to this module is ignored.
     data = pd.read_csv(config.data_path)
+
     return data
 
 
@@ -266,6 +275,11 @@ def boolean_classifier(data, config):
         100 - pct_classified
     )
 
+    # keep track of unclassified cells by referring to them as 'unclassified'
+    data[('class', 'boolean')] = [
+        'unclassified' if i is None else i for i in data[('class', 'boolean')]
+        ]
+
     return data
 
 
@@ -413,13 +427,13 @@ def frequency_barcharts(data, config):
         )
     plot_input = plot_input.reindex(padded_index, fill_value=0.0)
 
-    for (time_point_name, tissue_name), group in plot_input.groupby(
+    for (tp_name, ts_name), group in plot_input.groupby(
       [i for i in metadata_cols if i[1] in ['time_point', 'tissue']]
       ):
 
         print(
-            f'Plotting barcharts for {tissue_name} at '
-            f'time point {time_point_name}.'
+            f'Plotting barcharts for {ts_name} at '
+            f'time point {tp_name}.'
             )
 
         group.sort_index(
@@ -431,7 +445,7 @@ def frequency_barcharts(data, config):
         g = group['mean'].plot(
             yerr=group['sem'], kind='bar', grid=False, width=0.78, linewidth=1,
             figsize=(20, 10), color=['b', 'g'], alpha=0.6,
-            title=f'{tissue_name}, {time_point_name}'
+            title=f'{ts_name}, {tp_name}'
             )
 
         xlabels = [
@@ -475,9 +489,86 @@ def frequency_barcharts(data, config):
         save_figure(
             config.figure_path /
             'frequency_barcharts' /
-            f'{tissue_name}_{time_point_name}.pdf'
+            f'{ts_name}_{tp_name}.pdf'
             )
 
         plt.close('all')
+
+    return data
+
+
+@module
+def frequency_stats(data, config):
+    """Compute frequency statistics between cell types from
+    test and control groups"""
+
+    metadata_cols = [
+        i for i in data.columns if i[1] in
+        ['time_point', 'tissue', 'status', 'replicate']
+        ]
+
+    per_well_counts = (
+        data
+        .groupby(metadata_cols + [('class', 'boolean')])
+        .size()
+        .replace(to_replace='NaN', value=0)
+        .astype(int)
+        )
+
+    per_well_percentages = (
+        per_well_counts.groupby(metadata_cols)
+        .apply(lambda x: (x / x.sum())*100)
+        )
+
+    stats_df = pd.DataFrame(
+        columns=['time_point', 'tissue', 'cell_class', 'gl261_percent',
+                 'naive_percent', 'dif', 'ratio', 't-stat', 'pval']
+        )
+    row_idx = 0
+
+    for (tp_name, ts_name, ct_name), group in per_well_percentages.groupby(
+      [('metadata', 'time_point'), ('metadata', 'tissue'),
+       ('class', 'boolean')]):
+
+        # ensure at least 2 replicates per treatment group
+        # (avoids runtime warnings and NaNs in statistics computation)
+        if all(
+            i >= 2 for i in list(group.groupby(('metadata', 'status')).size())
+          ):
+
+            if len(list(group.groupby(('metadata', 'status')).size())) >= 2:
+
+                t_stat, pval = ttest_ind(
+                    group[:, 'gl261'], group[:, 'naive'],
+                    axis=0, equal_var=True, nan_policy='propagate')
+
+                gl261_mean = group[:, 'gl261'].mean()
+                naive_mean = group[:, 'naive'].mean()
+                dif = (gl261_mean-naive_mean)
+                ratio = np.log2((0.01 + gl261_mean) / (0.01 + naive_mean))
+
+                stats_df.loc[row_idx] = [
+                    tp_name, ts_name, ct_name, gl261_mean, naive_mean,
+                    dif, ratio, t_stat, pval]
+                row_idx += 1
+
+    # perform FDR correction
+    stats = importr('stats')
+    p_adjust = stats.p_adjust(
+        FloatVector(stats_df['pval'].tolist()),
+        method='BH')
+    stats_df['qval'] = p_adjust
+
+    stats_df.sort_values(
+        by='qval', inplace=True, ascending=True
+        )
+
+    if stats_df[stats_df['qval'] <= 0.05].empty:
+        print('No statistically significant differences to report.')
+    else:
+        print('Statistically significant differences are as follows:')
+        print(stats_df[stats_df['qval'] <= 0.05])
+
+    save_data(config.stats_path / 'frequency_stats.csv', stats_df, index=False)
 
     return data

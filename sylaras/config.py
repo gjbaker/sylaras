@@ -100,6 +100,10 @@ class Config:
     def dashboards_path(self):
         return self.output_path / 'dashboards'
 
+    @property
+    def stats_path(self):
+        return self.output_path / 'stats'
+
     def __repr__(self):
         kwargs_str = ', '.join(f"{k}={v!r}" for k, v in self.__dict__.items())
         return f"Config({kwargs_str})"
