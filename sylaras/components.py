@@ -383,8 +383,10 @@ def check_celltypes(data, config):
 
 
 @module
-def frequency_barcharts(data, config):
+def celltype_barcharts(data, config):
     """plot cell frequency barcharts with SEM bars"""
+
+    classified_data = data[data[('class', 'boolean')] != 'unclassified']
 
     metadata_cols = [
         i for i in data.columns if i[1] in
@@ -392,7 +394,7 @@ def frequency_barcharts(data, config):
         ]
 
     per_well_counts = (
-        data
+        classified_data
         .groupby(metadata_cols + [('class', 'boolean')])
         .size()
         .replace(to_replace='NaN', value=0)
@@ -418,9 +420,9 @@ def frequency_barcharts(data, config):
 
     # pad missing cell types with 0.0 for mean and SEM
     padded_index = pd.MultiIndex.from_product(
-        [data['metadata', 'status'].unique(),
-         data['metadata', 'time_point'].unique(),
-         data['metadata', 'tissue'].unique(),
+        [classified_data['metadata', 'status'].unique(),
+         classified_data['metadata', 'time_point'].unique(),
+         classified_data['metadata', 'tissue'].unique(),
          list(config.classes.keys())],
         names=[i for i in metadata_cols if i[1] != 'replicate'] +
         [('class', 'boolean')]
@@ -432,7 +434,7 @@ def frequency_barcharts(data, config):
       ):
 
         print(
-            f'Plotting barcharts for {ts_name} at '
+            f'Plotting celltype barcharts for {ts_name} at '
             f'time point {tp_name}.'
             )
 
@@ -488,7 +490,7 @@ def frequency_barcharts(data, config):
 
         save_figure(
             config.figure_path /
-            'frequency_barcharts' /
+            'frequency_barcharts(classified)' /
             f'{ts_name}_{tp_name}.pdf'
             )
 
@@ -498,9 +500,11 @@ def frequency_barcharts(data, config):
 
 
 @module
-def frequency_stats(data, config):
+def celltype_stats(data, config):
     """Compute frequency statistics between cell types from
     test and control groups"""
+
+    classified_data = data[data[('class', 'boolean')] != 'unclassified']
 
     metadata_cols = [
         i for i in data.columns if i[1] in
@@ -508,7 +512,7 @@ def frequency_stats(data, config):
         ]
 
     per_well_counts = (
-        data
+        classified_data
         .groupby(metadata_cols + [('class', 'boolean')])
         .size()
         .replace(to_replace='NaN', value=0)
@@ -569,6 +573,140 @@ def frequency_stats(data, config):
         print('Statistically significant differences are as follows:')
         print(stats_df[stats_df['qval'] <= 0.05])
 
-    save_data(config.stats_path / 'frequency_stats.csv', stats_df, index=False)
+    save_data(config.stats_path / 'celltype_stats.csv', stats_df, index=False)
+
+    return data
+
+
+@module
+def vector_barcharts(data, config):
+    """plot cell frequency barcharts with SEM bars for all Boolean vectors"""
+
+    unspecified_data = data[data[('class', 'boolean')] == 'unclassified']
+
+    metadata_cols = [
+        i for i in data.columns if i[1] in
+        ['time_point', 'tissue', 'status', 'replicate']
+        ]
+
+    boolean_cols = [
+        i for i in data.columns if i[0] == 'boolean'
+        ]
+
+    per_well_counts = (
+        unspecified_data
+        .groupby(metadata_cols + boolean_cols)
+        .size()
+        .replace(to_replace='NaN', value=0)
+        .astype(int)
+        )
+
+    per_well_percentages = (
+        per_well_counts.groupby(metadata_cols)
+        .apply(lambda x: (x / x.sum())*100)
+        )
+
+    replicate_groupby_obj = (
+        per_well_percentages
+        .groupby(
+            [i for i in metadata_cols if i[1] != 'replicate'] +
+            boolean_cols)
+        )
+
+    plot_input = pd.concat(
+        [replicate_groupby_obj.mean(), replicate_groupby_obj.sem()], axis=1
+        )
+    plot_input.rename(columns={0: 'mean', 1: 'sem'}, inplace=True)
+    vectors_total = [
+        [j for j in i[0] if type(j) == bool] for i in plot_input.iterrows()
+        ]
+    vectors_total = [
+        ['1' if j is True else '0' for j in i] for i in vectors_total
+        ]
+    vectors_total = [" ".join(i) for i in vectors_total]
+    plot_input['vector'] = vectors_total
+
+    unique_vectors = (
+        unspecified_data['boolean'].drop_duplicates().reset_index(drop=True)
+        )
+    vectors_unique = [
+        [j for j in i[1] if type(j) == bool] for i in unique_vectors.iterrows()
+        ]
+    vectors_unique = [
+        ['1' if j is True else '0' for j in i] for i in vectors_unique
+        ]
+    vectors_unique = [" ".join(i) for i in vectors_unique]
+    vector_dict = dict(zip(vectors_unique, unique_vectors.index))
+
+    unique_vectors.reset_index(drop=False, inplace=True)
+    unique_vectors.rename(columns={'index': 'vector_id'}, inplace=True)
+
+    plot_input['vector_id'] = [vector_dict[i] for i in plot_input['vector']]
+
+    save_data(
+        config.figure_path /
+        'frequency_barcharts(unspecified)' /
+        f'vector_legend.csv',
+        unique_vectors, index=False
+        )
+
+    for (tp_name, ts_name), group in plot_input.groupby(
+      [i for i in metadata_cols if i[1] in ['time_point', 'tissue']]
+      ):
+
+        print(
+            f'Plotting vector barcharts for {ts_name} at '
+            f'time point {tp_name}.'
+            )
+
+        group.sort_index(
+            level=boolean_cols + [('metadata', 'status')],
+            ascending=[True for i in boolean_cols] + [False], inplace=True
+            )
+        group.set_index('vector_id', inplace=True)
+
+        sns.set_style('whitegrid')
+        g = group['mean'].plot(
+            yerr=group['sem'], kind='bar', grid=False, width=0.78, linewidth=1,
+            figsize=(20, 10), color=['b', 'g'], alpha=0.6,
+            title=f'{ts_name}, {tp_name}'
+            )
+
+        for item in g.get_xticklabels():
+            item.set_size(4)
+            item.set_weight('normal')
+
+        for item in g.get_yticklabels():
+            item.set_size(15)
+
+        g.set_xlabel(xlabel='', size=18, weight='bold')
+        g.set_ylabel(ylabel='% tissue composition', size=18, weight='bold')
+        g.set_ylim(0.0, 100.0)
+
+        g.grid(color='grey', linestyle='--', linewidth=0.5, alpha=0.5)
+        g.xaxis.grid(False)
+
+        g.set_title(g.get_title(), size=18, weight='bold', y=1.02)
+
+        legend_elements = [
+            Patch(facecolor='b', edgecolor='b', label='naive'),
+            Patch(facecolor='g', edgecolor='g', label='gl261')
+            ]
+        legend_text_properties = {'size': 20, 'weight': 'bold'}
+        plt.legend(
+            handles=legend_elements,
+            prop=legend_text_properties,
+            loc='upper right'
+            )
+
+        plt.tight_layout()
+
+        save_figure(
+            config.figure_path /
+            'frequency_barcharts(unspecified)' /
+            f'{ts_name}_{tp_name}.pdf'
+            )
+
+        plt.close('all')
 
     return data
