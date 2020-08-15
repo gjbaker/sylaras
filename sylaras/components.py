@@ -501,7 +501,7 @@ def celltype_barcharts(data, config):
 
 @module
 def celltype_stats(data, config):
-    """Compute frequency statistics between cell types from
+    """Compute frequency statistics between classified vectors from
     test and control groups"""
 
     classified_data = data[data[('class', 'boolean')] != 'unclassified']
@@ -570,7 +570,7 @@ def celltype_stats(data, config):
     if stats_df[stats_df['qval'] <= 0.05].empty:
         print('No statistically significant differences to report.')
     else:
-        print('Statistically significant differences are as follows:')
+        print('Statistically significant differences (qval<=0.05):')
         print(stats_df[stats_df['qval'] <= 0.05])
 
     save_data(config.stats_path / 'celltype_stats.csv', stats_df, index=False)
@@ -582,7 +582,7 @@ def celltype_stats(data, config):
 def vector_barcharts(data, config):
     """plot cell frequency barcharts with SEM bars for all Boolean vectors"""
 
-    unspecified_data = data[data[('class', 'boolean')] == 'unclassified']
+    unclassified_data = data[data[('class', 'boolean')] == 'unclassified']
 
     metadata_cols = [
         i for i in data.columns if i[1] in
@@ -594,7 +594,7 @@ def vector_barcharts(data, config):
         ]
 
     per_well_counts = (
-        unspecified_data
+        unclassified_data
         .groupby(metadata_cols + boolean_cols)
         .size()
         .replace(to_replace='NaN', value=0)
@@ -627,7 +627,7 @@ def vector_barcharts(data, config):
     plot_input['vector'] = vectors_total
 
     unique_vectors = (
-        unspecified_data['boolean'].drop_duplicates().reset_index(drop=True)
+        unclassified_data['boolean'].drop_duplicates().reset_index(drop=True)
         )
     vectors_unique = [
         [j for j in i[1] if type(j) == bool] for i in unique_vectors.iterrows()
@@ -708,5 +708,102 @@ def vector_barcharts(data, config):
             )
 
         plt.close('all')
+
+    return data
+
+
+@module
+def vector_stats(data, config):
+    """Compute frequency statistics between unclassified vectors from
+    test and control groups"""
+
+    unclassified_data = data[data[('class', 'boolean')] == 'unclassified']
+
+    metadata_cols = [
+        i for i in data.columns if i[1] in
+        ['time_point', 'tissue', 'status', 'replicate']
+        ]
+
+    boolean_cols = [
+        i for i in data.columns if i[0] == 'boolean'
+        ]
+
+    per_well_counts = (
+        unclassified_data
+        .groupby(metadata_cols + boolean_cols)
+        .size()
+        .replace(to_replace='NaN', value=0)
+        .astype(int)
+        )
+
+    per_well_percentages = (
+        per_well_counts.groupby(metadata_cols)
+        .apply(lambda x: (x / x.sum())*100)
+        )
+
+    # add vector strings to multiindex
+    vectors = [
+        [j for j in i[0] if type(j) == bool] for
+        i in per_well_percentages.iteritems()
+        ]
+    vectors = [
+        ['1' if j is True else '0' for j in i] for i in vectors
+        ]
+    vectors = [" ".join(i) for i in vectors]
+    per_well_percentages = pd.DataFrame(
+        per_well_percentages).rename(columns={0: 'percent'})
+    per_well_percentages['vector'] = vectors
+    per_well_percentages.set_index('vector', append=True, inplace=True)
+    per_well_percentages = per_well_percentages['percent']
+
+    stats_df = pd.DataFrame(
+        columns=['time_point', 'tissue', 'vector', 'gl261_percent',
+                 'naive_percent', 'dif', 'ratio', 't-stat', 'pval']
+        )
+    row_idx = 0
+
+    for (tp_name, ts_name, v_name), group in per_well_percentages.groupby(
+      [('metadata', 'time_point'), ('metadata', 'tissue')] + ['vector']):
+
+        # ensure at least 2 replicates per treatment group
+        # (avoids runtime warnings and NaNs in statistics computation)
+        if all(
+            i >= 2 for i in list(group.groupby(('metadata', 'status')).size())
+          ):
+
+            if len(list(group.groupby(('metadata', 'status')).size())) >= 2:
+                a = group
+                t_stat, pval = ttest_ind(
+                    group[:, 'gl261'], group[:, 'naive'],
+                    axis=0, equal_var=True, nan_policy='propagate')
+
+                gl261_mean = group[:, 'gl261'].mean()
+                naive_mean = group[:, 'naive'].mean()
+                dif = (gl261_mean-naive_mean)
+                ratio = np.log2((0.01 + gl261_mean) / (0.01 + naive_mean))
+
+                stats_df.loc[row_idx] = [
+                    tp_name, ts_name, v_name, gl261_mean, naive_mean,
+                    dif, ratio, t_stat, pval]
+                row_idx += 1
+
+    # perform FDR correction
+    stats = importr('stats')
+    p_adjust = stats.p_adjust(
+        FloatVector(stats_df['pval'].tolist()),
+        method='BH')
+    stats_df['qval'] = p_adjust
+
+    stats_df.sort_values(
+        by='qval', inplace=True, ascending=True
+        )
+
+    if stats_df[stats_df['qval'] <= 0.05].empty:
+        print('No statistically significant differences to report.')
+    else:
+        print('Statistically significant differences (qval<=0.05):')
+        print(stats_df[stats_df['qval'] <= 0.05])
+
+    save_data(config.stats_path / 'vector_stats.csv', stats_df, index=False)
 
     return data
