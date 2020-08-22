@@ -1,4 +1,4 @@
-data_path: /Users/greg/projects/gbm_immunosuppression/cleaned_zeroed_data/combined_csv_file/data.csv
+data_path:  /Users/greg/projects/gbm_immunosuppression/cleaned_zeroed_data/combined_csv_file/data.csv
 # /Users/greg/projects/sylaras/test_tiny.csv  # 1000 cells
 # /Users/greg/projects/gbm_immunosuppression/cleaned_zeroed_data/combined_csv_file/data.csv
 
@@ -52,7 +52,7 @@ classes:
 # cutoff for cell states populated by >1% of cells in one or more tissues
 alpha: 1.0
 
-# output_path: .
+# output_path
 output_path: '/Users/greg/projects/gbm_immunosuppression/postbot/data/logicle_e20/orthant_testing'
 
 # celltypes and markers of interest for scatter plot

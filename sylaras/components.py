@@ -8,8 +8,12 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+import math
+from natsort import natsorted
+
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+from matplotlib import colors
 
 from scipy.stats import ttest_ind
 
@@ -92,6 +96,41 @@ def open_dashboards(path, **kwargs):
     dashboards_shlf = shelve.open('dashboards.shelve', writeback=True)
 
     return dashboards_shlf
+
+
+def categorical_cmap(numUniqueSamples, numCatagories, cmap='tab10',
+                     continuous=False):
+    """
+    Generate a categorical colormap of length numUniqueSamples.
+
+    """
+
+    numSubcatagories = math.ceil(numUniqueSamples/numCatagories)
+
+    if numCatagories > plt.get_cmap(cmap).N:
+        raise ValueError('Too many categories for colormap.')
+    if continuous:
+        ccolors = plt.get_cmap(cmap)(np.linspace(0, 1, numCatagories))
+    else:
+        ccolors = plt.get_cmap(cmap)(np.arange(numCatagories, dtype=int))
+
+    cols = np.zeros((numCatagories * numSubcatagories, 3))
+    for i, c in enumerate(ccolors):
+        chsv = colors.rgb_to_hsv(c[:3])
+        arhsv = np.tile(chsv, numSubcatagories).reshape(numSubcatagories, 3)
+        arhsv[:, 1] = np.linspace(chsv[1], 0.25, numSubcatagories)
+        arhsv[:, 2] = np.linspace(chsv[2], 1, numSubcatagories)
+        rgb = colors.hsv_to_rgb(arhsv)
+        cols[i * numSubcatagories:(i + 1) * numSubcatagories, :] = rgb
+    cmap = colors.ListedColormap(cols)
+
+    # trim colors if necessary
+    if len(cmap.colors) > numUniqueSamples:
+        trim = len(cmap.colors) - numUniqueSamples
+        cmap_colors = cmap.colors[:-trim]
+        cmap = colors.ListedColormap(cmap_colors, name='from_list', N=None)
+
+    return cmap
 
 
 def log_banner(log_function, msg):
@@ -805,5 +844,171 @@ def vector_stats(data, config):
         print(stats_df[stats_df['qval'] <= 0.05])
 
     save_data(config.stats_path / 'vector_stats.csv', stats_df, index=False)
+
+    return data
+
+
+@module
+def replicate_counts(data, config):
+    """Plot cell type percentages per tissue per replicate"""
+
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+
+    tissue_color_dict = dict(zip(sorted(data[('metadata', 'tissue')].unique()),
+                             ['r', 'b', 'g', 'm', 'y']))
+
+    num_conditions = len(data[('metadata', 'status')].unique())
+    num_time_points = len(data[('metadata', 'time_point')].unique())
+    num_replicates = len(data[('metadata', 'replicate')].unique())
+
+    # per condition per timepoint hue scheme
+    # list_of_lists = [
+    #     [i]*num_replicates for i in
+    #     range(num_conditions * num_time_points)
+    #     ]
+
+    # per condition hue scheme
+    list_of_lists = [
+        [i]*num_replicates for i in
+        range(num_conditions)] * num_time_points
+
+    # flatten list of lists
+    hue_list = [item for sublist in list_of_lists for item in sublist]
+
+    cmap = categorical_cmap(
+        numUniqueSamples=len(set(hue_list)),
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False
+        )
+
+    color_dict = dict(zip(natsorted(set(hue_list)), cmap.colors))
+
+    for celltype in sorted(data[('class', 'boolean')].unique()):
+        if not celltype == 'unclassified':
+            print(celltype)
+
+            axes_objs = tuple(
+                [f'ax{i}' for i in
+                 range(1, len(data['metadata', 'tissue'].unique()) + 1)]
+                 )
+
+            sns.set(style='whitegrid')
+            fig, axes_objs = plt.subplots(
+                5, figsize=(7, 6), sharex=True
+                )
+
+            fig.suptitle(celltype, fontsize=10, fontweight='bold', y=0.99)
+
+            maxima = []
+
+            for ax, tissue in zip(
+              axes_objs, sorted(data[('metadata', 'tissue')].unique())):
+                y_percents = []
+                x_labels = []
+                spec_ts_ct = data[
+                    (data[('metadata', 'tissue')] == tissue) &
+                    (data[('class', 'boolean')] == celltype)
+                    ]
+                spec_denom_ts_ct = data[
+                    (data[('metadata', 'tissue')] == tissue)
+                    ]
+
+                for tp in sorted(data[('metadata', 'time_point')].unique()):
+                    spec_ts_ct_tp = spec_ts_ct[
+                        (spec_ts_ct[('metadata', 'time_point')] == tp)
+                        ]
+                    spec_denom_ts_ct_tp = spec_denom_ts_ct[
+                        (spec_denom_ts_ct[('metadata', 'time_point')] == tp)
+                        ]
+
+                    for status in sorted(
+                      data[('metadata', 'status')].unique(), reverse=True):
+                        spec_ts_ct_tp_st = spec_ts_ct_tp[
+                            (spec_ts_ct_tp[('metadata', 'status')] == status)
+                            ]
+                        spec_denom_ts_ct_tp_st = spec_denom_ts_ct_tp[
+                            (spec_denom_ts_ct_tp[
+                                ('metadata', 'status')] == status)
+                            ]
+
+                        for rep in sorted(
+                          data[('metadata', 'replicate')].unique()):
+                            spec_ts_ct_tp_st_rp = spec_ts_ct_tp_st[
+                                (spec_ts_ct_tp_st[
+                                    ('metadata', 'replicate')] == rep)
+                                ]
+                            spec_denom_ts_ct_tp_st_rp = spec_denom_ts_ct_tp_st[
+                                (spec_denom_ts_ct_tp_st[
+                                    ('metadata', 'replicate')] == rep)
+                                ]
+                            y_percents.append(
+                                len(spec_ts_ct_tp_st_rp) /
+                                len(spec_denom_ts_ct_tp_st_rp)
+                                )
+
+                            x_labels.append(f'{status}, {tp}, {rep}')
+
+                dashboards_shlf[celltype][
+                    f'{tissue}_replicate_data'] = y_percents
+
+                ts_tp_st = pd.DataFrame(
+                    {tissue: y_percents}, index=x_labels
+                    )
+
+                maxima.append(ts_tp_st.max().values)
+
+                sns.barplot(x_labels, y_percents, hue=hue_list,
+                            palette=color_dict, linewidth=0.25,
+                            edgecolor='b', ax=ax)
+                ax.legend_.remove()
+
+                ax.set_ylabel('% composition').set_size(7)
+                ax.tick_params(axis='y', which='both', length=0)
+                ax.zorder = 1
+                for item in ax.get_yticklabels():
+                    item.set_rotation(0)
+                    item.set_size(7)
+                for item in ax.get_xticklabels():
+                    item.set_rotation(90)
+                    item.set_size(7)
+
+                ax1 = ax.twinx()
+                ax1.set_yticklabels([])
+                ax1.set_ylabel(tissue, color=tissue_color_dict[tissue],
+                               fontweight='bold')
+                ax1.tick_params(axis='y', which='both', length=0)
+
+                for n, bar in enumerate(ax.patches):
+
+                    # customize bar width
+                    width = (len(x_labels)/75)
+                    bar.set_width(width)
+
+                    # adjust misaligned bars
+                    if 48 < n < 96:
+                        bar_coord = bar.get_x()
+                        bar.set_x(bar_coord - 0.43)
+
+            # set global maximum
+            for ax in axes_objs:
+                ax.set_ylim(0, max(maxima))
+
+            dashboards_shlf[celltype][
+                'replicate_data_ymax'] = max(maxima)[0]
+            dashboards_shlf[celltype]['replicate_data_xlabels'] = x_labels
+
+            plt.xlim(-1.1, len(x_labels))
+            plt.tight_layout()
+
+            save_figure(
+                config.figure_path /
+                'replicate_counts' /
+                f'{celltype}.pdf'
+                )
+
+            plt.close('all')
+
+    dashboards_shlf.close()
 
     return data
