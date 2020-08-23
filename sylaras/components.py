@@ -14,6 +14,8 @@ from natsort import natsorted
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 from matplotlib import colors
+import matplotlib.lines as mlines
+from matplotlib.ticker import AutoMinorLocator
 
 from scipy.stats import ttest_ind
 
@@ -614,6 +616,99 @@ def celltype_stats(data, config):
 
     save_data(config.stats_path / 'celltype_stats.csv', stats_df, index=False)
 
+    # plot (q-val vs. magnitude) and (q-val vs. ratio) scatter plots of
+    # statistically-significant classified data.
+    plot_input = stats_df[stats_df['qval'] <= 0.05].copy()
+
+    cmap = categorical_cmap(
+        numUniqueSamples=len(plot_input['tissue'].unique()),
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False,
+        )
+
+    tissue_color_dict = dict(
+        zip(sorted(plot_input['tissue'].unique()), cmap.colors)
+        )
+
+    for tp, group in plot_input.groupby(['time_point']):
+
+        group['hue'] = [tissue_color_dict[i] for i in group['tissue']]
+        group['qval'] = -(group['qval'].apply(np.log10))
+
+        for x, y in [('dif', 'qval'), ('dif', 'ratio')]:
+
+            fig, ax = plt.subplots()
+            plt.scatter(
+                group[x],
+                group[y],
+                c=group['hue'],
+                s=60,
+                )
+            ax.set_axisbelow(True)
+            plt.grid(True, linestyle='dashed')
+            plt.axvline(x=0.0, linewidth=1.0,
+                        linestyle='solid', color='k', alpha=1.0)
+            ax.set_title(
+                f'time point = {str(tp)}', size=20, y=1.02, weight='bold'
+                )
+
+            if y == 'qval':
+                print(
+                    'Plotting mean difference vs. q-val for' +
+                    ' statistically-significant' +
+                    f' classified data at time point = {str(tp)}.'
+                      )
+                ax.set_xlabel('mean difference (%)', size=15, weight='normal')
+                ax.set_ylabel('-log10(q-val)', size=15, weight='normal')
+            elif y == 'ratio':
+                print(
+                    'Plotting mean difference vs. weighted log2(fold-change)'
+                    ' for statistically-significant' +
+                    f' classified data at time point = {str(tp)}.'
+                      )
+                ax.set_xlabel('mean difference (%)', size=15, weight='normal')
+                ax.set_ylabel(
+                    'weighted log2(fold-change)', size=15, weight='normal'
+                    )
+                plt.axhline(y=0.0, linewidth=1.0,
+                            linestyle='solid', color='k', alpha=1.0)
+
+            ax.xaxis.set_minor_locator(AutoMinorLocator())
+            ax.yaxis.set_minor_locator(AutoMinorLocator())
+
+            # point annotations
+            for i, txt in enumerate(group['cell_class']):
+                txt = txt.replace(
+                    'neg', '$^-$').replace('pos', '$^+$')
+                ax.annotate(
+                    txt,
+                    xy=(group[x].iloc[i], group[y].iloc[i]),
+                    xytext=None,  # (x, y) positions of text
+                    size=10,
+                    )
+
+            # legend
+            handles = []
+            for key, value in tissue_color_dict.items():
+                line = mlines.Line2D(
+                    [], [], color=value, linestyle='None', marker='o',
+                    markersize=10, label=key)
+                handles.append(line)
+            legend_text_properties = {'weight': 'bold'}
+            plt.legend(handles=handles, prop=legend_text_properties)
+
+            plt.tight_layout()
+
+            save_figure(
+                config.figure_path /
+                'stats_plots' /
+                f'{x}_vs_{y}' /
+                f'{str(tp)}.pdf'
+                )
+
+            plt.close('all')
+
     return data
 
 
@@ -854,8 +949,16 @@ def replicate_counts(data, config):
 
     dashboards_shlf = open_dashboards(path=config.dashboards_path)
 
-    tissue_color_dict = dict(zip(sorted(data[('metadata', 'tissue')].unique()),
-                             ['r', 'b', 'g', 'm', 'y']))
+    cmap = categorical_cmap(
+        numUniqueSamples=len(data[('metadata', 'tissue')].unique()),
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False
+        )
+
+    tissue_color_dict = dict(
+        zip(sorted(sorted(data[('metadata', 'tissue')].unique())), cmap.colors)
+        )
 
     num_conditions = len(data[('metadata', 'status')].unique())
     num_time_points = len(data[('metadata', 'time_point')].unique())
