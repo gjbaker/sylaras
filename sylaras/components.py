@@ -957,7 +957,7 @@ def replicate_counts(data, config):
         )
 
     tissue_color_dict = dict(
-        zip(sorted(sorted(data[('metadata', 'tissue')].unique())), cmap.colors)
+        zip(sorted(data[('metadata', 'tissue')].unique()), cmap.colors)
         )
 
     num_conditions = len(data[('metadata', 'status')].unique())
@@ -985,7 +985,7 @@ def replicate_counts(data, config):
         continuous=False
         )
 
-    color_dict = dict(zip(natsorted(set(hue_list)), cmap.colors))
+    color_dict = dict(zip(sorted(set(hue_list)), cmap.colors))
 
     for celltype in sorted(data[('class', 'boolean')].unique()):
         if not celltype == 'unclassified':
@@ -1107,6 +1107,87 @@ def replicate_counts(data, config):
             save_figure(
                 config.figure_path /
                 'replicate_counts' /
+                f'{celltype}.pdf'
+                )
+
+            plt.close('all')
+
+    dashboards_shlf.close()
+
+    return data
+
+
+@module
+def celltype_boxplots(data, config):
+    """Generate boxplots of cell type-specific immunomarker expression."""
+
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+
+    cmap = categorical_cmap(
+        numUniqueSamples=len(data[('metadata', 'status')].unique()),
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False
+        )
+
+    condition_color_dict = dict(
+        zip(sorted(data[('metadata', 'status')].unique(), reverse=True),
+            cmap.colors)
+        )
+
+    for celltype, group in sorted(data.groupby([('class', 'boolean')])):
+        if celltype != 'unclassified':
+            print(celltype)
+
+            plot_input = (
+                group[[('data', j) for j in [i for i in group['data']]] +
+                      [('metadata', 'status')]]
+                .droplevel(level=0, axis=1)
+                .melt(id_vars='status')
+                .sort_values(
+                    by=['variable', 'status'], ascending=[True, False])
+                )
+
+            ax = sns.boxplot(
+                x='variable',
+                y='value',
+                hue='status',
+                data=plot_input,
+                palette=condition_color_dict,
+                linewidth=0.5,
+                )
+            sns.despine(left=True)
+            ax.grid(color='grey', linestyle='--', linewidth=0.5, alpha=1.0)
+            ax.xaxis.grid(False)
+            ax.yaxis.grid(True)
+
+            xlabels = [item.get_text() for item in ax.get_xticklabels()]
+            xlabels_update = [
+                xlabel.replace('cd3e', 'cd3' + u'\u03B5') for
+                xlabel in xlabels
+                ]
+            ax.set_xticklabels(xlabels_update)
+
+            for item in ax.get_xticklabels():
+                item.set_rotation(90)
+                item.set_fontweight('normal')
+
+            ax.set_xlabel('', size=15, weight='normal')
+            ax.set_ylabel('intensity', size=15, weight='normal')
+            ax.set_title(str(celltype), fontweight='bold')
+
+            legend_text_properties = {'size': 10, 'weight': 'normal'}
+            legend = plt.legend(prop=legend_text_properties, loc=(0, 1.0))
+
+            for legobj in legend.legendHandles:
+                legobj.set_linewidth(0)
+
+            plt.ylim(-3.0, 3.0)
+            plt.tight_layout()
+
+            save_figure(
+                config.figure_path /
+                'celltype_boxplots' /
                 f'{celltype}.pdf'
                 )
 
