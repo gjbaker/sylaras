@@ -1163,7 +1163,7 @@ def celltype_boxplots(data, config):
                             by=['variable', 'status'], ascending=[True, False])
                         )
                     figsize = (3.0, 10.0)
-                    ylim = (-0.0, 250000)
+                    ylim = (0.0, 250000)
 
                 print(plot_input)
                 fig, ax = plt.subplots(figsize=figsize)
@@ -1242,7 +1242,9 @@ def celltype_boxplots_perChannel(data, config):
 
     channel_data = data[
         [('class', 'boolean'),
-         ('metadata', 'status')] +
+         ('metadata', 'status'),
+         ('metadata', 'fsc'),
+         ('metadata', 'ssc')] +
         [('data', j) for j in [i for i in data['data']]]
          ].copy()
 
@@ -1250,14 +1252,22 @@ def celltype_boxplots_perChannel(data, config):
         channel_data[('class', 'boolean')] != 'unclassified'
         ]
 
-    for channel in sorted(channel_data['data'].columns):
+    for channel in sorted(list(channel_data['data'].columns) + ['fsc', 'ssc']):
         print(channel)
+
+        if channel in ['fsc', 'ssc']:
+            level_0_idx = 'metadata'
+            ylim = (0.0, 250000)
+
+        else:
+            level_0_idx = 'data'
+            ylim = (-3, 3)
 
         plot_input = (
             channel_data[
                 [('class', 'boolean'),
                  ('metadata', 'status'),
-                 ('data', channel)]]
+                 (level_0_idx, channel)]]
             .droplevel(level=0, axis=1)
             .sort_values(
                 by=['status'], ascending=[False])
@@ -1269,7 +1279,11 @@ def celltype_boxplots_perChannel(data, config):
         for name, group in plot_input.groupby(['boolean', 'status']):
             if name[1] == 'naive':
                 order.append((name[0], group[channel].median()))
-        order.sort(key=lambda x: x[1], reverse=True)
+        if channel in ['fsc', 'ssc']:
+            reverse = False
+        else:
+            reverse = True
+        order.sort(key=lambda x: x[1], reverse=reverse)
         order = [i[0] for i in order]
 
         figsize = (6.4, 4.8)  # mpl default
@@ -1311,7 +1325,7 @@ def celltype_boxplots_perChannel(data, config):
         for legobj in legend.legendHandles:
             legobj.set_linewidth(0)
 
-        plt.ylim((-3, 3))
+        plt.ylim(ylim)
         plt.tight_layout()
 
         save_figure(
