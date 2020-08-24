@@ -1189,13 +1189,15 @@ def celltype_boxplots(data, config):
                     ]
                 ax.set_xticklabels(xlabels_update)
 
+                title = celltype.replace('neg', '$^-$').replace('pos', '$^+$')
+
                 for item in ax.get_xticklabels():
                     item.set_rotation(90)
                     item.set_fontweight('normal')
 
                 ax.set_xlabel('', size=15, weight='normal')
                 ax.set_ylabel('intensity', size=15, weight='normal')
-                ax.set_title(str(celltype), fontweight='bold')
+                ax.set_title(title, fontweight='bold')
 
                 legend_text_properties = {'size': 10, 'weight': 'normal'}
                 legend = plt.legend(prop=legend_text_properties, loc=(0, 1.0))
@@ -1213,6 +1215,112 @@ def celltype_boxplots(data, config):
                     )
 
                 plt.close('all')
+
+    dashboards_shlf.close()
+
+    return data
+
+
+@module
+def celltype_boxplots_perChannel(data, config):
+    """Generate boxplots of immunomarker-specific
+       signal intensity across celltypes."""
+
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+
+    cmap = categorical_cmap(
+        numUniqueSamples=len(data[('metadata', 'status')].unique()),
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False
+        )
+
+    condition_color_dict = dict(
+        zip(sorted(data[('metadata', 'status')].unique(), reverse=True),
+            cmap.colors)
+        )
+
+    channel_data = data[
+        [('class', 'boolean'),
+         ('metadata', 'status')] +
+        [('data', j) for j in [i for i in data['data']]]
+         ].copy()
+
+    channel_data = channel_data[
+        channel_data[('class', 'boolean')] != 'unclassified'
+        ]
+
+    for channel in sorted(channel_data['data'].columns):
+        print(channel)
+
+        plot_input = (
+            channel_data[
+                [('class', 'boolean'),
+                 ('metadata', 'status'),
+                 ('data', channel)]]
+            .droplevel(level=0, axis=1)
+            .sort_values(
+                by=['status'], ascending=[False])
+            )
+
+        # sort in increasing rank-order according to
+        # median values of control data.
+        order = []
+        for name, group in plot_input.groupby(['boolean', 'status']):
+            if name[1] == 'naive':
+                order.append((name[0], group[channel].median()))
+        order.sort(key=lambda x: x[1], reverse=True)
+        order = [i[0] for i in order]
+
+        figsize = (6.4, 4.8)  # mpl default
+        fig, ax = plt.subplots(figsize=figsize)
+
+        ax = sns.boxplot(
+            x='boolean',
+            y=channel,
+            hue='status',
+            data=plot_input,
+            palette=condition_color_dict,
+            linewidth=0.5,
+            order=order,
+            )
+
+        sns.despine(left=True)
+        ax.grid(color='grey', linestyle='--', linewidth=0.5, alpha=1.0)
+        ax.xaxis.grid(False)
+        ax.yaxis.grid(True)
+
+        xlabels = [item.get_text() for item in ax.get_xticklabels()]
+        xlabels_update = [
+            xlabel.replace('neg', '$^-$').replace('pos', '$^+$') for
+            xlabel in xlabels
+            ]
+        ax.set_xticklabels(xlabels_update)
+
+        for item in ax.get_xticklabels():
+            item.set_rotation(90)
+            item.set_fontweight('normal')
+
+        ax.set_xlabel('', size=15, weight='normal')
+        ax.set_ylabel('intensity', size=15, weight='normal')
+        ax.set_title(channel, fontsize=20, fontweight='bold')
+
+        legend_text_properties = {'size': 10, 'weight': 'normal'}
+        legend = plt.legend(prop=legend_text_properties, loc=(0, 1.0))
+
+        for legobj in legend.legendHandles:
+            legobj.set_linewidth(0)
+
+        plt.ylim((-3, 3))
+        plt.tight_layout()
+
+        save_figure(
+            config.figure_path /
+            'channel_boxplots' /
+            f'{channel}.pdf'
+            )
+
+        plt.close('all')
 
     dashboards_shlf.close()
 
