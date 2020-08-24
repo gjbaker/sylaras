@@ -1139,59 +1139,80 @@ def celltype_boxplots(data, config):
         if celltype != 'unclassified':
             print(celltype)
 
-            plot_input = (
-                group[[('data', j) for j in [i for i in group['data']]] +
-                      [('metadata', 'status')]]
-                .droplevel(level=0, axis=1)
-                .melt(id_vars='status')
-                .sort_values(
-                    by=['variable', 'status'], ascending=[True, False])
-                )
+            for k in ['immunomarker_boxplots', 'scatter_boxplots']:
 
-            ax = sns.boxplot(
-                x='variable',
-                y='value',
-                hue='status',
-                data=plot_input,
-                palette=condition_color_dict,
-                linewidth=0.5,
-                )
-            sns.despine(left=True)
-            ax.grid(color='grey', linestyle='--', linewidth=0.5, alpha=1.0)
-            ax.xaxis.grid(False)
-            ax.yaxis.grid(True)
+                if k == 'immunomarker_boxplots':
+                    plot_input = (
+                        group[[('data', j) for j in [i for i in group['data']]]
+                              + [('metadata', 'status')]]
+                        .droplevel(level=0, axis=1)
+                        .melt(id_vars='status')
+                        .sort_values(
+                            by=['variable', 'status'], ascending=[True, False])
+                        )
+                    figsize = (6.4, 4.8)  # mpl default
+                    ylim = (-3.0, 3.0)
 
-            xlabels = [item.get_text() for item in ax.get_xticklabels()]
-            xlabels_update = [
-                xlabel.replace('cd3e', 'cd3' + u'\u03B5') for
-                xlabel in xlabels
-                ]
-            ax.set_xticklabels(xlabels_update)
+                elif k == 'scatter_boxplots':
+                    plot_input = (
+                        group[[('metadata', 'fsc'), ('metadata', 'ssc')]
+                              + [('metadata', 'status')]]
+                        .droplevel(level=0, axis=1)
+                        .melt(id_vars='status')
+                        .sort_values(
+                            by=['variable', 'status'], ascending=[True, False])
+                        )
+                    figsize = (3.0, 10.0)
+                    ylim = (-0.0, 250000)
 
-            for item in ax.get_xticklabels():
-                item.set_rotation(90)
-                item.set_fontweight('normal')
+                print(plot_input)
+                fig, ax = plt.subplots(figsize=figsize)
 
-            ax.set_xlabel('', size=15, weight='normal')
-            ax.set_ylabel('intensity', size=15, weight='normal')
-            ax.set_title(str(celltype), fontweight='bold')
+                ax = sns.boxplot(
+                    x='variable',
+                    y='value',
+                    hue='status',
+                    data=plot_input,
+                    palette=condition_color_dict,
+                    linewidth=0.5,
+                    )
 
-            legend_text_properties = {'size': 10, 'weight': 'normal'}
-            legend = plt.legend(prop=legend_text_properties, loc=(0, 1.0))
+                sns.despine(left=True)
+                ax.grid(color='grey', linestyle='--', linewidth=0.5, alpha=1.0)
+                ax.xaxis.grid(False)
+                ax.yaxis.grid(True)
 
-            for legobj in legend.legendHandles:
-                legobj.set_linewidth(0)
+                xlabels = [item.get_text() for item in ax.get_xticklabels()]
+                xlabels_update = [
+                    xlabel.replace('cd3e', 'cd3' + u'\u03B5') for
+                    xlabel in xlabels
+                    ]
+                ax.set_xticklabels(xlabels_update)
 
-            plt.ylim(-3.0, 3.0)
-            plt.tight_layout()
+                for item in ax.get_xticklabels():
+                    item.set_rotation(90)
+                    item.set_fontweight('normal')
 
-            save_figure(
-                config.figure_path /
-                'celltype_boxplots' /
-                f'{celltype}.pdf'
-                )
+                ax.set_xlabel('', size=15, weight='normal')
+                ax.set_ylabel('intensity', size=15, weight='normal')
+                ax.set_title(str(celltype), fontweight='bold')
 
-            plt.close('all')
+                legend_text_properties = {'size': 10, 'weight': 'normal'}
+                legend = plt.legend(prop=legend_text_properties, loc=(0, 1.0))
+
+                for legobj in legend.legendHandles:
+                    legobj.set_linewidth(0)
+
+                plt.ylim(ylim)
+                plt.tight_layout()
+
+                save_figure(
+                    config.figure_path /
+                    k /
+                    f'{celltype}.pdf'
+                    )
+
+                plt.close('all')
 
     dashboards_shlf.close()
 
