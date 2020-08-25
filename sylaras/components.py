@@ -377,7 +377,7 @@ def initialize_dashboards(data, config):
 
     dashboards = {}
     for celltype in set(data[('class', 'boolean')]):
-        if celltype is not None:
+        if celltype is not 'unclassified':
             dashboards[celltype] = {}
 
     print('Dashboards dictionary initialized.')
@@ -547,6 +547,8 @@ def celltype_stats(data, config):
     """Compute frequency statistics between classified vectors from
     test and control groups"""
 
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+
     classified_data = data[data[('class', 'boolean')] != 'unclassified']
 
     metadata_cols = [
@@ -617,6 +619,12 @@ def celltype_stats(data, config):
         print(stats_df[stats_df['qval'] <= 0.05])
 
     save_data(config.stats_path / 'celltype_stats.csv', stats_df, index=False)
+
+    for name, group in stats_df.groupby(['cell_class']):
+        group = group.pivot_table(
+            index='tissue', columns='time_point', values='dif')
+        dashboards_shlf[name]['sig_dif_all'] = group
+    dashboards_shlf.close()
 
     # plot (q-val vs. magnitude) and (q-val vs. ratio) scatter plots of
     # statistically-significant classified data.
@@ -1123,8 +1131,6 @@ def replicate_counts(data, config):
 def celltype_boxplots(data, config):
     """Generate boxplots of cell type-specific immunomarker expression."""
 
-    dashboards_shlf = open_dashboards(path=config.dashboards_path)
-
     cmap = categorical_cmap(
         numUniqueSamples=len(data[('metadata', 'status')].unique()),
         numCatagories=10,
@@ -1217,8 +1223,6 @@ def celltype_boxplots(data, config):
 
                 plt.close('all')
 
-    dashboards_shlf.close()
-
     return data
 
 
@@ -1226,8 +1230,6 @@ def celltype_boxplots(data, config):
 def celltype_boxplots_perChannel(data, config):
     """Generate boxplots of immunomarker-specific
        signal intensity across celltypes."""
-
-    dashboards_shlf = open_dashboards(path=config.dashboards_path)
 
     cmap = categorical_cmap(
         numUniqueSamples=len(data[('metadata', 'status')].unique()),
@@ -1337,8 +1339,6 @@ def celltype_boxplots_perChannel(data, config):
 
         plt.close('all')
 
-    dashboards_shlf.close()
-
     return data
 
 
@@ -1441,7 +1441,7 @@ def celltype_piecharts(data, config):
             )
         radius = math.sqrt(prcnt_of_total_cells)*10
 
-        dashboards_shlf[celltype]['percent'] = prcnt_of_total_cells
+        dashboards_shlf[name]['percent'] = prcnt_of_total_cells
 
         ax = plt.subplot(the_grid[coordinate], aspect=1)
         patches, texts = ax.pie(
@@ -1473,6 +1473,97 @@ def celltype_piecharts(data, config):
         )
 
     plt.close('all')
+
+    dashboards_shlf.close()
+
+    return data
+
+
+@module
+def stats_heatmaps(data, config):
+    """Plot mean percent difference between control and test data."""
+
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+
+    celltype_stats = pd.read_csv(
+        f'{config.output_path}/stats/celltype_stats.csv'
+        )
+
+    heatmap_row_order = sorted(
+        dashboards_shlf, key=lambda x: dashboards_shlf[x]['percent'],
+        reverse=True)
+
+    for data_type, k in zip(
+      ['mean_difference', 'log2(ratio)'], ['dif', 'ratio']):
+        for name, group in celltype_stats.groupby(['tissue']):
+            print(
+                'Plotting mean percent differences between'
+                f' celltypes in the {name}.'
+                )
+
+            fig, ax = plt.subplots()
+            group = (
+                group
+                .pivot_table(
+                    index='cell_class', columns='time_point', values=k)
+                .reindex(heatmap_row_order)
+                )
+            group[np.isnan(group)] = 0.0
+
+            qvals = celltype_stats[
+                    celltype_stats['tissue'] == name].pivot_table(
+                        index='cell_class', columns='time_point',
+                        values='qval').reindex(heatmap_row_order)
+            qvals[qvals > 0.05] = np.nan
+
+            for col_idx in qvals:
+                series = qvals[col_idx]
+                for i in series.iteritems():
+                    row_idx = i[0]
+                    if not i[1] == np.nan:
+                        if 0.01 < i[1] <= 0.05:
+                            qvals.loc[row_idx, col_idx] = '*'
+                        elif 0.001 < i[1] <= 0.01:
+                            qvals.loc[row_idx, col_idx] = '**'
+                        elif i[1] <= 0.001:
+                            qvals.loc[row_idx, col_idx] = '***'
+            qvals.replace(to_replace=np.nan, value='', inplace=True)
+
+            g = sns.heatmap(group, square=True, linewidth=0.5,
+                            fmt='', cmap='cividis', center=0.0,
+                            annot=qvals, xticklabels=1, yticklabels=1,
+                            annot_kws={'size': 7})
+
+            row_labels = [
+                item.get_text() for item in g.get_yticklabels()]
+
+            row_labels_update = [
+                i
+                .replace('neg', '$^-$')
+                .replace('pos', '$^+$') for i in row_labels
+                ]
+
+            g.set_yticklabels(row_labels_update)
+
+            for item in g.get_yticklabels():
+                item.set_rotation(0)
+                item.set_size(5)
+            for item in g.get_xticklabels():
+                item.set_rotation(90)
+                item.set_size(5)
+
+            g.set_title(name)
+            g.set_xlabel('time point')
+            g.set_ylabel('cell type')
+
+            save_figure(
+                config.figure_path /
+                'stats_heatmaps' /
+                data_type /
+                f'{name}.pdf'
+                )
+
+            plt.close('all')
 
     dashboards_shlf.close()
 
