@@ -6,6 +6,7 @@ import shelve
 import pandas as pd
 import numpy as np
 import seaborn as sns
+import itertools
 import matplotlib.pyplot as plt
 
 import math
@@ -16,6 +17,7 @@ from matplotlib.lines import Line2D
 from matplotlib import colors
 import matplotlib.lines as mlines
 from matplotlib.ticker import AutoMinorLocator
+from matplotlib.gridspec import GridSpec
 
 from scipy.stats import ttest_ind
 
@@ -1165,7 +1167,6 @@ def celltype_boxplots(data, config):
                     figsize = (3.0, 10.0)
                     ylim = (0.0, 250000)
 
-                print(plot_input)
                 fig, ax = plt.subplots(figsize=figsize)
 
                 ax = sns.boxplot(
@@ -1335,6 +1336,143 @@ def celltype_boxplots_perChannel(data, config):
             )
 
         plt.close('all')
+
+    dashboards_shlf.close()
+
+    return data
+
+
+@module
+def celltype_piecharts(data, config):
+    """Plot celltype distribution across tissue types."""
+
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+
+    cmap = categorical_cmap(
+        numUniqueSamples=len(data[('metadata', 'tissue')].unique()),
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False
+        )
+
+    tissue_color_dict = dict(
+        zip(sorted(data[('metadata', 'tissue')].unique(), reverse=False),
+            cmap.colors)
+        )
+
+    # define factor generator
+    def factors(n):
+        flatten_iter = itertools.chain.from_iterable
+        return set(flatten_iter((i, n//i)
+                   for i in range(1, int(n**0.5)+1) if n % i == 0))
+
+    # plot piecharts individually
+    for celltype, group in data.groupby(('class', 'boolean')):
+        if celltype != 'unclassified':
+            print(celltype)
+
+            plot_input = group[('metadata', 'tissue')].value_counts()
+
+            dashboards_shlf[celltype]['data'] = plot_input
+
+            color_list = [tissue_color_dict[i] for i in plot_input.index]
+
+            fig, ax = plt.subplots()
+            patches, texts, autotexts = ax.pie(
+                plot_input, shadow=False, colors=color_list,
+                autopct='%1.1f%%', startangle=90, radius=0.1)
+
+            title = celltype.replace('neg', '$^-$').replace('pos', '$^+$')
+
+            ax.set_title(title)
+            plt.axis('equal')
+            plt.legend(plot_input.index, loc='upper right')
+
+            for w in patches:
+                w.set_linewidth(0.25)
+                w.set_edgecolor('k')
+
+            save_figure(
+                config.figure_path /
+                'celltype_piecharts' /
+                f'{celltype}.pdf'
+                )
+
+            plt.close('all')
+
+    # plot grid of piecharts with radii
+    # proportioned according to celltype population size.
+    plot_input = data[data[('class', 'boolean')] != 'unclassified'].copy()
+    print('Plotting piechart grid.')
+
+    # identify optimal number of rows and columns
+    # given total number of celltypes
+    num_celltypes = len(plot_input.groupby(('class', 'boolean')))
+    factors_list = list(factors(num_celltypes))
+    tuple_list = []
+    for i, v in enumerate(list(itertools.combinations(factors_list, 2))):
+        if v[0] * v[1] == num_celltypes:
+            tuple_list.append(v)
+    dif_list = []
+    for pair in tuple_list:
+        dif_list.append(abs(pair[0] - pair[1]))
+    tuple_dict = dict(zip(tuple_list, dif_list))
+    target_tuple = min(tuple_dict, key=tuple_dict.get)
+
+    the_grid = GridSpec(target_tuple[0], target_tuple[1])
+    the_grid.update(hspace=30, wspace=30, left=0.1,
+                    right=0.93, bottom=0.08, top=0.83)
+
+    coordinates = [(x, y) for x in range(
+        target_tuple[0]) for y in range(target_tuple[1])]
+    dif = len(coordinates) - num_celltypes
+    if dif > 0:
+        coordinates = coordinates[:-dif]
+
+    for coordinate, (name, group) in itertools.zip_longest(
+      coordinates, plot_input.groupby(('class', 'boolean'))):
+
+        celltype_cnts_per_tissue = group[('metadata', 'tissue')].value_counts()
+        celltype_cnt_total = celltype_cnts_per_tissue.sum()
+        total_cells_in_dataset = len(data)
+
+        prcnt_of_total_cells = (
+            celltype_cnt_total/(total_cells_in_dataset)*100
+            )
+        radius = math.sqrt(prcnt_of_total_cells)*10
+
+        dashboards_shlf[celltype]['percent'] = prcnt_of_total_cells
+
+        ax = plt.subplot(the_grid[coordinate], aspect=1)
+        patches, texts = ax.pie(
+            celltype_cnts_per_tissue, shadow=False, radius=radius,
+            colors=color_list, startangle=90
+            )
+
+        title = name.replace('neg', '$^-$').replace('pos', '$^+$')
+        ax.set_title(title, y=(radius/2.5), loc='left',
+                     fontsize=6.0, weight='normal')
+
+        for w in patches:
+            w.set_linewidth(0.25)
+            w.set_edgecolor('k')
+
+    lgd = plt.gcf().legend(
+        celltype_cnts_per_tissue.index,
+        bbox_to_anchor=(1.15, 0.9),
+        prop={'size': 8}
+        )
+
+    save_figure(
+        config.figure_path /
+        'celltype_piecharts' /
+        'combined_piecharts.pdf',
+        bbox_extra_artists=(lgd,),
+        pad_inches=0.5,
+        bbox_inches='tight'
+        )
+
+    plt.close('all')
 
     dashboards_shlf.close()
 
