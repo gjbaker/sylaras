@@ -1568,3 +1568,88 @@ def stats_heatmaps(data, config):
     dashboards_shlf.close()
 
     return data
+
+
+@module
+def celltype_heatmap(data, config):
+    """Plot heatmap of Boolean immunomarker calls."""
+
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+    heatmap_row_order = sorted(
+        dashboards_shlf, key=lambda x: dashboards_shlf[x]['percent'],
+        reverse=True)
+
+    plot_input = data[data[('class', 'boolean')] != 'unclassified'].copy()
+    plot_input = plot_input[
+        [('class', 'boolean'),
+         ('metadata', 'fsc'),
+         ('metadata', 'ssc')] +
+        [('boolean', j) for j in [i for i in data['boolean']]]
+         ]
+
+    for name, group in plot_input.groupby([('class', 'boolean')]):
+
+        # binarize fsc
+        mean_fsc = group[('metadata', 'fsc')].mean()
+        plot_input[('metadata', 'fsc')] = [
+            True if i > 35000 else False for i in [mean_fsc]
+            ][0]
+
+        # binarize ssc
+        mean_ssc = group[('metadata', 'ssc')].mean()
+        plot_input[('metadata', 'ssc')] = [
+            True if i > 97000 else False for i in [mean_ssc]
+            ][0]
+
+    plot_input.drop_duplicates(inplace=True)
+
+    plot_input = plot_input.droplevel(level=0, axis=1)
+    plot_input.set_index('boolean', inplace=True)
+    plot_input = plot_input.reindex(heatmap_row_order)
+    cols = sorted(
+        [j for j in [i for i in data['boolean']]]
+        ) + ['fsc', 'ssc']
+    plot_input.columns = cols
+
+    fig, ax = plt.subplots()
+    ax.set_title('protein expression heatmap', y=1.05, weight='normal')
+
+    ax = sns.heatmap(plot_input, cbar=False, square=True,
+                     linewidths=1.75, cmap='rocket_r',
+                     xticklabels=1, yticklabels=1, ax=ax
+                     )
+
+    ax.axhline(y=0, color='k', linewidth=1.5)
+    ax.axhline(y=plot_input.shape[0], color='k', linewidth=1.5)
+    ax.axvline(x=0, color='k', linewidth=1.5)
+    ax.axvline(x=plot_input.shape[1], color='k', linewidth=1.5)
+
+    ylabels = [
+        item.get_text() for item in ax.get_yticklabels()]
+    ylabels_update = [ylabel.replace(
+        'neg', '$^-$').replace('pos', '$^+$') for ylabel in ylabels]
+    ax.set_yticklabels(ylabels_update)
+
+    for item in ax.get_yticklabels():
+        item.set_rotation(0)
+        item.set_size(7)
+        item.set_weight('normal')
+    for item in ax.get_xticklabels():
+        item.set_rotation(70)
+        item.set_size(8)
+        item.set_weight('normal')
+
+    ax.set_ylabel('')
+
+    plt.tight_layout()
+
+    save_figure(
+        config.figure_path /
+        'boolean_heatmap.pdf'
+        )
+
+    plt.close('all')
+
+    dashboards_shlf.close()
+
+    return data
