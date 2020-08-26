@@ -1484,14 +1484,13 @@ def stats_heatmaps(data, config):
     """Plot mean percent difference between control and test data."""
 
     dashboards_shlf = open_dashboards(path=config.dashboards_path)
+    heatmap_row_order = sorted(
+        dashboards_shlf, key=lambda x: dashboards_shlf[x]['percent'],
+        reverse=True)
 
     celltype_stats = pd.read_csv(
         f'{config.output_path}/stats/celltype_stats.csv'
         )
-
-    heatmap_row_order = sorted(
-        dashboards_shlf, key=lambda x: dashboards_shlf[x]['percent'],
-        reverse=True)
 
     for data_type, k in zip(
       ['mean_difference', 'log2(ratio)'], ['dif', 'ratio']):
@@ -1651,5 +1650,86 @@ def celltype_heatmap(data, config):
     plt.close('all')
 
     dashboards_shlf.close()
+
+    return data
+
+
+@module
+def tissue_composition_plots(data, config):
+    """Plot individual and cumulative percentage of
+       tissues accounted for by successively scarce celltypes."""
+
+    plot_input = data[data[('class', 'boolean')] != 'unclassified']
+
+    cmap = categorical_cmap(
+        numUniqueSamples=len(plot_input[('metadata', 'tissue')].unique()),
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False,
+        )
+
+    tissue_color_dict = dict(
+        zip(sorted(plot_input[('metadata', 'tissue')].unique()), cmap.colors)
+        )
+
+    for tissue, group in plot_input.groupby([('metadata', 'tissue')]):
+        group = (
+            group
+            .groupby([('class', 'boolean')])
+            .size()
+            .reindex(plot_input[('class', 'boolean')].unique())
+            .fillna(value=0.0)
+            .sort_values(ascending=False)
+            .to_frame()
+            .rename(columns={0: 'count'})
+            )
+
+        group.index.name = 'celltype'
+
+        total_cells_in_tissue = group.sum()
+
+        group['percent'] = (group/total_cells_in_tissue)*100
+
+        tally = 0
+        accumulation = []
+        for i in group['percent']:
+            tally += i
+            accumulation.append(tally)
+        group['accumulation'] = accumulation
+
+        x = np.arange(0, len(group['accumulation']), 1)
+        ax = plt.step(
+            x, group['accumulation'], where='post',
+            color=tissue_color_dict[tissue])
+
+        ax = sns.barplot(
+            x=group.index, y='percent', data=group,
+            color=tissue_color_dict[tissue])
+
+        xlabels = [
+            item.get_text() for item in ax.get_xticklabels()]
+        xlabels_update = [
+            i.replace('neg', '$^-$').replace('pos', '$^+$') for i in xlabels
+            ]
+        ax.set_xticklabels(xlabels_update)
+
+        for item in ax.get_xticklabels():
+            item.set_rotation(90)
+            item.set_weight('normal')
+
+        ax.set_ylim((0, 100))
+        ax.set_xlabel(xlabel='celltype', weight='normal')
+        ax.set_ylabel(ylabel='% tissue coverage', weight='normal')
+        ax.set_axisbelow(True)
+        ax.grid(color='grey', linestyle='--', linewidth=0.5, alpha=0.5)
+        plt.tight_layout()
+
+        save_figure(
+            config.figure_path /
+            'tissue_composition_plots' /
+            f'{tissue}.pdf'
+            )
+
+        plt.close('all')
 
     return data
