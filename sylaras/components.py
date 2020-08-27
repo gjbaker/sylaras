@@ -1733,3 +1733,99 @@ def tissue_composition_plots(data, config):
         plt.close('all')
 
     return data
+
+
+@module
+def shannon_entropy_plot(data, config):
+    """Plot stacked barchart of celltype distributions across tissues
+       together with their Shannon entropy scores."""
+
+    plot_prep = data[data[('class', 'boolean')] != 'unclassified'].copy()
+
+    cmap = categorical_cmap(
+        numUniqueSamples=len(plot_prep[('metadata', 'tissue')].unique()),
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False,
+        )
+
+    tissue_color_dict = dict(
+        zip(sorted(plot_prep[('metadata', 'tissue')].unique()), cmap.colors)
+        )
+
+    plot_input = pd.DataFrame(
+        columns=sorted(
+            list(plot_prep[('metadata', 'tissue')].unique())) + ['entropy'],
+        dtype=float
+        )
+
+    for celltype, group in sorted(plot_prep.groupby([('class', 'boolean')])):
+
+        counts = (
+            group
+            .groupby(('metadata', 'tissue'))
+            .size()
+            .reindex(sorted(plot_prep[('metadata', 'tissue')].unique()))
+            )
+
+        total = counts.sum()
+        percents = list(counts/total)
+        percents = list(np.nan_to_num(percents))
+        from scipy.stats import entropy
+        entropy = entropy(pk=percents, base=2)
+        percents.append(entropy)
+        plot_input.loc[celltype] = percents
+
+    plot_input.sort_values(by='entropy', inplace=True)
+
+    # plot
+    fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1, sharex=True)
+
+    print('Plotting celltype tissue distributions.')
+
+    ax1 = plot_input['entropy'].plot(
+            kind='bar', stacked=False, linewidth=0.0,
+            figsize=(9, 7), color='grey', ax=ax1
+            )
+    ax1.axes.get_xaxis().set_visible(False)
+
+    ax2 = plot_input.loc[:, plot_input.columns != 'entropy'].plot(
+            kind='bar', stacked=True, linewidth=0.0,
+            figsize=(9, 7), ax=ax2
+            )
+
+    ax1.set_title(
+        'celltype tissue distribution', y=1.05, size=20,
+        fontweight='normal'
+        )
+
+    xlabels = [
+        item.get_text() for item in ax2.get_xticklabels()]
+    xlabels_update = [xlabel.replace(
+        'neg', '$^-$').replace('pos', '$^+$') for xlabel in xlabels]
+    ax2.set_xticklabels(xlabels_update)
+
+    for item in ax2.get_xticklabels():
+        item.set_rotation(90)
+        item.set_weight('normal')
+
+    ax1.set_ylabel(
+        ylabel='entropy (H)', size=11, weight='normal'
+        )
+
+    ax2.set_xlabel(xlabel='celltype', size=15, weight='normal')
+    ax2.set_ylabel(ylabel='% of tissue', size=11, weight='normal')
+
+    ax2.set_ylim(0.0, 1.0)
+
+    ax2.legend(bbox_to_anchor=[1.0, 1.0])
+    plt.tight_layout()
+
+    save_figure(
+        config.figure_path /
+        'shannon_entropy.pdf'
+        )
+
+    plt.close('all')
+
+    return data
