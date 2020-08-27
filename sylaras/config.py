@@ -68,17 +68,34 @@ class Config:
 
     def _parse_classes(self, value):
         self.classes = {}
+        self.lineages = {}
+        self.landmarks = {}
+
         if value is None:
             return
+
         for name, terms in value.items():
-            terms = [BooleanTerm.parse_str(t) for t in terms]
-            unknown_terms = set(t.name for t in terms) - set(self.id_channels)
+
+            vector = [BooleanTerm.parse_str(t) for t in terms[0]]
+            lineage = terms[1]
+            if len(terms) == 3:
+                landmark = terms[2]
+            else:
+                landmark = None
+
+            unknown_terms = (
+                set(t.name for t in vector) -
+                set(self.id_channels)
+                )
             if unknown_terms:
                 raise ValueError(
                     f"Class '{name}' includes terms {unknown_terms} which are"
                     " not in id_channels"
                 )
-            self.classes[name] = terms
+
+            self.classes[name] = vector
+            self.lineages[name] = lineage
+            self.landmarks[name] = landmark
 
     @property
     def filtered_data_path(self):

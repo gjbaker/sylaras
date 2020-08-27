@@ -373,18 +373,24 @@ def initialize_dashboards(data, config):
 
     path = config.dashboards_path
     path.mkdir(parents=True, exist_ok=True)
-    os.chdir(path)
+    dashboards_shlf = shelve.open(os.path.join(path, 'dashboards.shelve'))
 
     dashboards = {}
     for celltype in set(data[('class', 'boolean')]):
         if celltype is not 'unclassified':
+
             dashboards[celltype] = {}
+            dashboards[celltype]['signature'] = (
+                sorted([j for j in [str(i) for i in config.classes[celltype]]
+                        if not j.startswith('~')])
+                )
+            dashboards[celltype]['lineage'] = config.lineages[celltype]
+            dashboards[celltype]['landmark'] = config.landmarks[celltype]
 
-    print('Dashboards dictionary initialized.')
-
-    dashboards_shlf = shelve.open('dashboards.shelve')
     dashboards_shlf.update(dashboards)
     dashboards_shlf.close()
+
+    print('Dashboards dictionary initialized.')
 
     return data
 
