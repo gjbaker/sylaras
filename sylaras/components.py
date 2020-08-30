@@ -8,9 +8,11 @@ import numpy as np
 import seaborn as sns
 import itertools
 import matplotlib.pyplot as plt
+import matplotlib
 
 import math
 from natsort import natsorted
+from decimal import Decimal
 
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
@@ -18,16 +20,33 @@ from matplotlib import colors
 import matplotlib.lines as mlines
 from matplotlib.ticker import AutoMinorLocator
 from matplotlib.gridspec import GridSpec
+import matplotlib.gridspec as gridspec
+from matplotlib.patches import Rectangle
 
 from scipy.stats import ttest_ind
 
 from rpy2.robjects.packages import importr
 from rpy2.robjects.vectors import FloatVector
 
+from inspect import getmembers, isclass
+
 from .config import FilterChoice
 
 logger = logging.getLogger(__name__)
 
+# map matplotlib color codes to the default seaborn palette
+sns.set()
+sns.set_color_codes()
+_ = plt.plot([0, 1], color='r')
+sns.set_color_codes()
+_ = plt.plot([0, 2], color='b')
+sns.set_color_codes()
+_ = plt.plot([0, 3], color='g')
+sns.set_color_codes()
+_ = plt.plot([0, 4], color='m')
+sns.set_color_codes()
+_ = plt.plot([0, 5], color='y')
+plt.close('all')
 
 # Pipeline module order, to be filled in by the @module decorator.
 pipeline_modules = []
@@ -102,12 +121,20 @@ def open_dashboards(path, **kwargs):
     return dashboards_shlf
 
 
-def categorical_cmap(numUniqueSamples, numCatagories, cmap='tab10',
-                     continuous=False):
+def categorical_cmap(numUniqueSamples, uniqueSampleNames, numCatagories,
+                     reverseSampleOrder=False, flipColorOrder=False,
+                     cmap='tab10', continuous=False):
     """
     Generate a categorical colormap of length numUniqueSamples.
 
     """
+    # specify and apply color list index order
+    base_colors = plt.get_cmap(cmap)
+    channel_color_list = [base_colors(i) for i in range(base_colors.N)]
+    color_order = [3, 0, 2, 4, 8, 6, 1, 5, 9, 7]
+    if flipColorOrder:
+        color_order = np.flip(color_order)
+    cmap = colors.ListedColormap([channel_color_list[i] for i in color_order])
 
     numSubcatagories = math.ceil(numUniqueSamples/numCatagories)
 
@@ -134,7 +161,126 @@ def categorical_cmap(numUniqueSamples, numCatagories, cmap='tab10',
         cmap_colors = cmap.colors[:-trim]
         cmap = colors.ListedColormap(cmap_colors, name='from_list', N=None)
 
-    return cmap
+    color_dict = dict(
+        zip(sorted(uniqueSampleNames, reverse=reverseSampleOrder), cmap.colors)
+        )
+
+    return color_dict
+
+
+def rasterize_and_save(fname, rasterize_list=None, fig=None, dpi=None,
+                       savefig_kw={}):
+    """Save a figure with raster and vector components
+    This function lets you specify which objects to rasterize at the export
+    stage, rather than within each plotting call. Rasterizing certain
+    components of a complex figure can significantly reduce file size.
+    Inputs
+    ------
+    fname : str
+        Output filename with extension
+    rasterize_list : list (or object)
+        List of objects to rasterize (or a single object to rasterize)
+    fig : matplotlib figure object
+        Defaults to current figure
+    dpi : int
+        Resolution (dots per inch) for rasterizing
+    savefig_kw : dict
+        Extra keywords to pass to matplotlib.pyplot.savefig
+    If rasterize_list is not specified, then all contour, pcolor, and
+    collects objects (e.g., ``scatter, fill_between`` etc) will be
+    rasterized
+    Note: does not work correctly with round=True in Basemap
+    Example
+    -------
+    Rasterize the contour, pcolor, and scatter plots, but not the line
+    >>> import matplotlib.pyplot as plt
+    >>> from numpy.random import random
+    >>> X, Y, Z = random((9, 9)), random((9, 9)), random((9, 9))
+    >>> fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(ncols=2, nrows=2)
+    >>> cax1 = ax1.contourf(Z)
+    >>> cax2 = ax2.scatter(X, Y, s=Z)
+    >>> cax3 = ax3.pcolormesh(Z)
+    >>> cax4 = ax4.plot(Z[:, 0])
+    >>> rasterize_list = [cax1, cax2, cax3]
+    >>> rasterize_and_save('out.svg', rasterize_list, fig=fig, dpi=300)
+    """
+
+    # Behave like pyplot and act on current figure if
+    # no figure is specified
+    fig = plt.gcf() if fig is None else fig
+
+    # Need to set_rasterization_zorder in order for rasterizing to work
+    zorder = -5  # Somewhat arbitrary, just ensuring less than 0
+
+    if rasterize_list is None:
+        # Have a guess at stuff that should be rasterised
+        types_to_raster = ['QuadMesh', 'Contour', 'collections']
+        rasterize_list = []
+
+        print("""
+        No rasterize_list specified, so the following objects will
+        be rasterized: """)
+        # Get all axes, and then get objects within axes
+        for ax in fig.get_axes():
+            for item in ax.get_children():
+                if any(x in str(item) for x in types_to_raster):
+                    rasterize_list.append(item)
+        print('\n'.join([str(x) for x in rasterize_list]))
+    else:
+        # Allow rasterize_list to be input as an object to rasterize
+        if type(rasterize_list) != list:
+            rasterize_list = [rasterize_list]
+
+    for item in rasterize_list:
+
+        # Whether or not plot is a contour plot is important
+        is_contour = (isinstance(item, matplotlib.contour.QuadContourSet)
+                      or
+                      isinstance(item, matplotlib.tri.TriContourSet))
+
+        # Whether or not collection of lines
+        # This is commented as we seldom want to rasterize lines
+        # is_lines = isinstance(
+        #    item, matplotlib.collections.LineCollection)
+
+        # Whether or not current item is list of patches
+        all_patch_types = tuple(
+            x[1] for x in getmembers(matplotlib.patches, isclass))
+        try:
+            is_patch_list = isinstance(item[0], all_patch_types)
+        except TypeError:
+            is_patch_list = False
+
+        # Convert to rasterized mode and then change zorder properties
+        if is_contour:
+            curr_ax = item.ax.axes
+            curr_ax.set_rasterization_zorder(zorder)
+            # For contour plots, need to set each part of the contour
+            # collection individually
+            for contour_level in item.collections:
+                contour_level.set_zorder(zorder + 100)
+                contour_level.set_rasterized(True)
+        elif is_patch_list:
+            # For list of patches, need to set zorder for each patch
+            for patch in item:
+                curr_ax = patch.axes
+                curr_ax.set_rasterization_zorder(zorder)
+                patch.set_zorder(zorder + 100)
+                patch.set_rasterized(True)
+        else:
+            # For all other objects, we can just do it all at once
+            curr_ax = item.axes
+            curr_ax.set_rasterization_zorder(zorder)
+            item.set_rasterized(True)
+            item.set_zorder(zorder + 100)
+
+    # dpi is a savefig keyword argument, but treat it as special]
+    # since it is important to this function
+    if dpi is not None:
+        savefig_kw['dpi'] = dpi
+
+    # Save resulting figure
+    fig.savefig(fname, **savefig_kw)
 
 
 def log_banner(log_function, msg):
@@ -627,24 +773,43 @@ def celltype_stats(data, config):
     save_data(config.stats_path / 'celltype_stats.csv', stats_df, index=False)
 
     for name, group in stats_df.groupby(['cell_class']):
-        group = group.pivot_table(
+        group_dif = group.pivot_table(
             index='tissue', columns='time_point', values='dif')
-        dashboards_shlf[name]['sig_dif_all'] = group
-    dashboards_shlf.close()
+        dashboards_shlf[name]['dif_heatmap'] = group_dif
+
+        group_ratio = group.pivot_table(
+            index='tissue', columns='time_point', values='ratio')
+        dashboards_shlf[name]['ratio_heatmap'] = group_ratio
+
+        group_qval = group.pivot_table(
+            index='tissue', columns='time_point', values='qval')
+        group_qval[group_qval > 0.05] = np.nan
+        for col_idx in group_qval:
+            series = group_qval[col_idx]
+            for i in series.iteritems():
+                row_idx = i[0]
+                if not i[1] == np.nan:
+                    if 0.01 < i[1] <= 0.05:
+                        group_qval.loc[row_idx, col_idx] = '*'
+                    elif 0.001 < i[1] <= 0.01:
+                        group_qval.loc[row_idx, col_idx] = '**'
+                    elif i[1] <= 0.001:
+                        group_qval.loc[row_idx, col_idx] = '***'
+        group_qval.replace(to_replace=np.nan, value='', inplace=True)
+        dashboards_shlf[name]['qval_heatmap'] = group_qval
 
     # plot (q-val vs. magnitude) and (q-val vs. ratio) scatter plots of
     # statistically-significant classified data.
     plot_input = stats_df[stats_df['qval'] <= 0.05].copy()
 
-    cmap = categorical_cmap(
+    tissue_color_dict = categorical_cmap(
         numUniqueSamples=len(plot_input['tissue'].unique()),
+        uniqueSampleNames=plot_input['tissue'].unique(),
         numCatagories=10,
+        reverseSampleOrder=False,
+        flipColorOrder=False,
         cmap='tab10',
         continuous=False,
-        )
-
-    tissue_color_dict = dict(
-        zip(sorted(plot_input['tissue'].unique()), cmap.colors)
         )
 
     for tp, group in plot_input.groupby(['time_point']):
@@ -724,6 +889,8 @@ def celltype_stats(data, config):
                 )
 
             plt.close('all')
+
+    dashboards_shlf.close()
 
     return data
 
@@ -965,15 +1132,14 @@ def replicate_counts(data, config):
 
     dashboards_shlf = open_dashboards(path=config.dashboards_path)
 
-    cmap = categorical_cmap(
+    tissue_color_dict = categorical_cmap(
         numUniqueSamples=len(data[('metadata', 'tissue')].unique()),
+        uniqueSampleNames=sorted(data[('metadata', 'tissue')].unique()),
         numCatagories=10,
+        reverseSampleOrder=False,
+        flipColorOrder=False,
         cmap='tab10',
         continuous=False
-        )
-
-    tissue_color_dict = dict(
-        zip(sorted(data[('metadata', 'tissue')].unique()), cmap.colors)
         )
 
     num_conditions = len(data[('metadata', 'status')].unique())
@@ -994,14 +1160,15 @@ def replicate_counts(data, config):
     # flatten list of lists
     hue_list = [item for sublist in list_of_lists for item in sublist]
 
-    cmap = categorical_cmap(
+    color_dict = categorical_cmap(
         numUniqueSamples=len(set(hue_list)),
+        uniqueSampleNames=sorted(set(hue_list)),
         numCatagories=10,
+        reverseSampleOrder=False,
+        flipColorOrder=True,
         cmap='tab10',
         continuous=False
         )
-
-    color_dict = dict(zip(sorted(set(hue_list)), cmap.colors))
 
     for celltype in sorted(data[('class', 'boolean')].unique()):
         if not celltype == 'unclassified':
@@ -1137,16 +1304,16 @@ def replicate_counts(data, config):
 def celltype_boxplots(data, config):
     """Generate boxplots of cell type-specific immunomarker expression."""
 
-    cmap = categorical_cmap(
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+
+    condition_color_dict = categorical_cmap(
         numUniqueSamples=len(data[('metadata', 'status')].unique()),
+        uniqueSampleNames=sorted(data[('metadata', 'status')].unique()),
         numCatagories=10,
+        reverseSampleOrder=True,
+        flipColorOrder=True,
         cmap='tab10',
         continuous=False
-        )
-
-    condition_color_dict = dict(
-        zip(sorted(data[('metadata', 'status')].unique(), reverse=True),
-            cmap.colors)
         )
 
     for celltype, group in sorted(data.groupby([('class', 'boolean')])):
@@ -1166,6 +1333,7 @@ def celltype_boxplots(data, config):
                         )
                     figsize = (6.4, 4.8)  # mpl default
                     ylim = (-3.0, 3.0)
+                    dashboards_shlf[celltype]['abx_signals'] = plot_input
 
                 elif k == 'scatter_boxplots':
                     plot_input = (
@@ -1178,6 +1346,7 @@ def celltype_boxplots(data, config):
                         )
                     figsize = (3.0, 10.0)
                     ylim = (0.0, 250000)
+                    dashboards_shlf[celltype]['scatter_signals'] = plot_input
 
                 fig, ax = plt.subplots(figsize=figsize)
 
@@ -1194,13 +1363,6 @@ def celltype_boxplots(data, config):
                 ax.grid(color='grey', linestyle='--', linewidth=0.5, alpha=1.0)
                 ax.xaxis.grid(False)
                 ax.yaxis.grid(True)
-
-                xlabels = [item.get_text() for item in ax.get_xticklabels()]
-                xlabels_update = [
-                    xlabel.replace('cd3e', 'cd3' + u'\u03B5') for
-                    xlabel in xlabels
-                    ]
-                ax.set_xticklabels(xlabels_update)
 
                 title = celltype.replace('neg', '$^-$').replace('pos', '$^+$')
 
@@ -1229,6 +1391,8 @@ def celltype_boxplots(data, config):
 
                 plt.close('all')
 
+    dashboards_shlf.close()
+
     return data
 
 
@@ -1237,16 +1401,14 @@ def celltype_boxplots_perChannel(data, config):
     """Generate boxplots of immunomarker-specific
        signal intensity across celltypes."""
 
-    cmap = categorical_cmap(
+    condition_color_dict = categorical_cmap(
         numUniqueSamples=len(data[('metadata', 'status')].unique()),
+        uniqueSampleNames=sorted(data[('metadata', 'status')].unique()),
         numCatagories=10,
+        reverseSampleOrder=True,
+        flipColorOrder=True,
         cmap='tab10',
         continuous=False
-        )
-
-    condition_color_dict = dict(
-        zip(sorted(data[('metadata', 'status')].unique(), reverse=True),
-            cmap.colors)
         )
 
     channel_data = data[
@@ -1354,16 +1516,14 @@ def celltype_piecharts(data, config):
 
     dashboards_shlf = open_dashboards(path=config.dashboards_path)
 
-    cmap = categorical_cmap(
+    tissue_color_dict = categorical_cmap(
         numUniqueSamples=len(data[('metadata', 'tissue')].unique()),
+        uniqueSampleNames=sorted(data[('metadata', 'tissue')].unique()),
         numCatagories=10,
+        reverseSampleOrder=False,
+        flipColorOrder=False,
         cmap='tab10',
         continuous=False
-        )
-
-    tissue_color_dict = dict(
-        zip(sorted(data[('metadata', 'tissue')].unique(), reverse=False),
-            cmap.colors)
         )
 
     # define factor generator
@@ -1499,7 +1659,7 @@ def stats_heatmaps(data, config):
         )
 
     for data_type, k in zip(
-      ['mean_difference', 'log2(ratio)'], ['dif', 'ratio']):
+      ['difference', 'log2(ratio)'], ['dif', 'ratio']):
         for name, group in celltype_stats.groupby(['tissue']):
             print(
                 'Plotting mean percent differences between'
@@ -1667,15 +1827,14 @@ def tissue_composition_plots(data, config):
 
     plot_input = data[data[('class', 'boolean')] != 'unclassified']
 
-    cmap = categorical_cmap(
+    tissue_color_dict = categorical_cmap(
         numUniqueSamples=len(plot_input[('metadata', 'tissue')].unique()),
+        uniqueSampleNames=sorted(plot_input[('metadata', 'tissue')].unique()),
         numCatagories=10,
+        reverseSampleOrder=False,
+        flipColorOrder=False,
         cmap='tab10',
         continuous=False,
-        )
-
-    tissue_color_dict = dict(
-        zip(sorted(plot_input[('metadata', 'tissue')].unique()), cmap.colors)
         )
 
     for tissue, group in plot_input.groupby([('metadata', 'tissue')]):
@@ -1748,15 +1907,14 @@ def shannon_entropy_plot(data, config):
 
     plot_prep = data[data[('class', 'boolean')] != 'unclassified'].copy()
 
-    cmap = categorical_cmap(
+    tissue_color_dict = categorical_cmap(
         numUniqueSamples=len(plot_prep[('metadata', 'tissue')].unique()),
+        uniqueSampleNames=sorted(plot_prep[('metadata', 'tissue')].unique()),
         numCatagories=10,
+        reverseSampleOrder=False,
+        flipColorOrder=False,
         cmap='tab10',
         continuous=False,
-        )
-
-    tissue_color_dict = dict(
-        zip(sorted(plot_prep[('metadata', 'tissue')].unique()), cmap.colors)
         )
 
     plot_input = pd.DataFrame(
@@ -1833,5 +1991,552 @@ def shannon_entropy_plot(data, config):
         )
 
     plt.close('all')
+
+    return data
+
+
+@module
+def plot_dashboards(data, config):
+    """Plot SYLARAS dashboards using data stored in
+       the dashboards shelve object."""
+
+    dashboards_shlf = open_dashboards(path=config.dashboards_path)
+
+    dashboards_order = sorted(
+        dashboards_shlf, key=lambda x: dashboards_shlf[x]['percent'],
+        reverse=True)
+
+    condition_color_dict = categorical_cmap(
+        numUniqueSamples=len(data[('metadata', 'status')].unique()),
+        uniqueSampleNames=sorted(data[('metadata', 'status')].unique()),
+        reverseSampleOrder=True,
+        flipColorOrder=True,
+        numCatagories=10,
+        cmap='tab10',
+        continuous=False,
+        )
+
+    tissue_color_dict = categorical_cmap(
+        numUniqueSamples=len(data[('metadata', 'tissue')].unique()),
+        uniqueSampleNames=sorted(data[('metadata', 'tissue')].unique()),
+        numCatagories=10,
+        reverseSampleOrder=False,
+        flipColorOrder=False,
+        cmap='tab10',
+        continuous=False
+        )
+
+    def dash(fig, ss, i):
+        sns.set_style('white')
+
+        celltype = dashboards_order[i]
+        data_to_consider = dashboards_shlf[celltype]
+
+        radius = math.sqrt(data_to_consider['percent'])/5
+
+        inner = gridspec.GridSpecFromSubplotSpec(
+            50, 100, subplot_spec=ss, wspace=0.05, hspace=0.05)
+
+        ax1 = plt.Subplot(fig, inner[0:10, 0:100])
+
+        # dashboard box outline
+        ax1.add_patch(Rectangle(
+            (0, -4.02), 1, 5.02, fill=None, lw=1.5, color='grey',
+            alpha=1, clip_on=False))
+
+        # celltype alias
+        ax1.text(
+            0.01, 0.92, celltype.replace('neg', '$^-$').replace('pos', '$^+$'),
+            horizontalalignment='left', verticalalignment='top',
+            fontsize=50, color='k', stretch=0, fontname='Arial',
+            fontweight='bold'
+            )
+
+        # landmark population indicator
+        if dashboards_shlf[celltype]['landmark'] == 'landmark population':
+            ax1.text(
+                0.013, 0.53, 'landmark population', horizontalalignment='left',
+                verticalalignment='top', fontsize=25, fontweight='bold',
+                color='blue'
+                )
+            ax1.text(
+                0.013, 0.33, 'signature: ' +
+                ', '.join(dashboards_shlf[celltype]['signature']),
+                horizontalalignment='left', fontweight='bold',
+                verticalalignment='top', fontsize=22, color='k'
+                )
+
+        # cell lineage specification
+        if dashboards_shlf[celltype]['lineage'] == 'lymphoid':
+            cmap = plt.cm.Greens
+        elif dashboards_shlf[celltype]['lineage'] == 'myeloid':
+            cmap = plt.cm.Blues
+        elif dashboards_shlf[celltype]['lineage'] == 'other':
+            cmap = plt.cm.Oranges
+        ax1.text(
+            0.98, 0.88, dashboards_shlf[celltype]['lineage'],
+            horizontalalignment='right', verticalalignment='top',
+            fontweight='bold', fontsize=33, color='k'
+            )
+
+        # make cell lineage banner
+        ax2 = plt.Subplot(fig, inner[0:4, 0:100])
+        banner_list = []
+        for i in list(range(0, 6)):
+            banner_list.append(list(range(0, 100)))
+        banner = np.array(banner_list)
+        ax2.imshow(
+            banner, cmap=cmap, interpolation='bicubic',
+            vmin=30, vmax=200
+            )
+        ax2.grid(False)
+        ax2.tick_params(axis='both', which='both', length=0)
+        for item in ax2.get_xticklabels():
+            item.set_visible(False)
+        for item in ax2.get_yticklabels():
+            item.set_visible(False)
+        fig.add_subplot(ax2)
+
+        # organize metadata text for replicate counts
+        time_point_offset = 0.0
+        status_offset = 0.0
+        for time_point in sorted(data[('metadata', 'time_point')].unique()):
+
+            for status in sorted(
+              data[('metadata', 'status')].unique(), reverse=True):
+
+                ax1.text(
+                    (0.629 + time_point_offset), -0.345, str(time_point),
+                    horizontalalignment='left',
+                    verticalalignment='center',
+                    fontsize=16, fontweight='bold', color='k'
+                    )
+                ax1.text(
+                    0.627 + status_offset, -0.47, str(status),
+                    horizontalalignment='left',
+                    verticalalignment='center',
+                    fontsize=13, fontweight='bold'
+                    ).set_color(condition_color_dict[status])
+                time_point_offset += 0.064
+                status_offset += 0.06
+
+        # make legend for pvalue characters
+        ax1.text(
+            0.14, -1.92, '(*) 0.01 < p <= 0.05', horizontalalignment='left',
+            verticalalignment='top', fontsize=12, color='k', stretch=0,
+            fontname='Arial', fontweight='bold'
+            )
+        ax1.text(
+            0.272, -1.92, '(**) 0.001 < p <= 0.01', horizontalalignment='left',
+            verticalalignment='top', fontsize=12, color='k', stretch=0,
+            fontname='Arial', fontweight='bold'
+            )
+        ax1.text(
+            0.42, -1.92, '(***) p <= 0.001', horizontalalignment='left',
+            verticalalignment='top', fontsize=12, color='k', stretch=0,
+            fontname='Arial', fontweight='bold'
+            )
+
+        ax1.axis('off')
+        fig.add_subplot(ax1)
+
+        # pop. size
+        ax3 = plt.Subplot(fig, inner[2:15, 82:95])
+
+        patches, texts = ax3.pie(
+            [100, 0], radius=radius, shadow=False,
+            startangle=90, colors=[(0.34, 0.35, 0.38)]
+            )
+
+        for w in patches:
+            w.set_linewidth(0.0)
+            w.set_edgecolor('k')
+
+        ax3.text(
+            -0.8, 0.96, 'pop. size',
+            horizontalalignment='right', verticalalignment='bottom',
+            fontsize=18, color='k', fontname='Arial',
+            fontweight='bold'
+            )
+
+        percent_txt = round(data_to_consider['percent'], 2)
+        ax3.text(
+            2.0, 0.70, f'{percent_txt}%',
+            horizontalalignment='right', verticalalignment='bottom',
+            fontsize=16, color='k', stretch=0, fontname='Arial',
+            fontweight='bold'
+            )
+        fig.add_subplot(ax3)
+
+        # tissue distribution
+        ax4 = plt.Subplot(fig, inner[2:14, 62:74])
+        colors = [tissue_color_dict[x] for x in data_to_consider['data'].index]
+
+        patches, texts = ax4.pie(
+            data_to_consider['data'], shadow=False,
+            colors=colors, startangle=90, radius=1.0
+            )
+
+        for w in patches:
+            w.set_linewidth(0.25)
+            w.set_edgecolor('k')
+
+        ax4.add_patch(
+            Rectangle((-1, -1), 2, 2, fill=None, alpha=0)
+            )
+        ax4.text(
+            -0.57, 0.9, 'tissue dist.',
+            horizontalalignment='right', verticalalignment='bottom',
+            fontsize=18, color='k', fontname='Arial',
+            fontweight='bold'
+            )
+        fig.add_subplot(ax4)
+
+        # scatter boxplots
+        ax5 = plt.Subplot(fig, inner[13:27, 5:11])
+
+        plot_input = data_to_consider['scatter_signals']
+
+        g = sns.boxplot(
+            x='variable',
+            y='value',
+            hue='status',
+            data=plot_input,
+            palette=condition_color_dict,
+            linewidth=0.5,
+            ax=ax5,
+            )
+
+        sns.despine(left=True)
+
+        for item in g.get_xticklabels():
+            item.set_rotation(90)
+            item.set_size(15)
+            item.set_fontweight('normal')
+            item.set_position([0, 0])
+
+        for item in g.get_yticklabels():
+            item.set_size(9)
+            item.set_fontweight('normal')
+
+        g.tick_params(axis='both', which='both', length=0)
+
+        g.set_ylim(0, 250000)
+
+        ax5.set_yticklabels(g.get_yticks())
+        labels = ax5.get_yticklabels()
+        ylabels = [float(label.get_text()) for label in labels]
+        ylabels = ['%.1E' % Decimal(s) for s in ylabels if 0 <= s <= 250000]
+        ax5.set_yticklabels(ylabels)
+
+        ax5.set_xlabel('')
+        ax5.set_ylabel('')
+        ax5.legend(loc=(-0.75, 1.08), prop={'weight': 'normal', 'size': 16})
+        ax5.axhline(
+            y=0.0, color='darkgray', linewidth=5.0,
+            linestyle='-', zorder=1, alpha=1.0
+            )
+        lines = g.lines[:-1]
+        scatter_raster = lines
+        fig.add_subplot(ax5)
+        g.grid(
+            axis='y', color='grey', linestyle='--', linewidth=0.5, alpha=1.0
+            )
+
+        # abx boxplots
+        ax6 = plt.Subplot(fig, inner[30:46, 3:52])
+        plot_input = data_to_consider['abx_signals']
+
+        g = sns.boxplot(
+            x='variable',
+            y='value',
+            hue='status',
+            data=plot_input,
+            palette=condition_color_dict,
+            linewidth=0.5,
+            ax=ax6,
+            )
+
+        g.grid(
+            axis='y', color='grey', linestyle='--',
+            linewidth=0.5, alpha=1.0
+            )
+
+        for item in g.get_xticklabels():
+            item.set_rotation(90)
+            item.set_size(15)
+            item.set_fontweight('normal')
+            item.set_position([0, 0.06])
+
+        for item in g.get_yticklabels():
+            item.set_size(12)
+            item.set_fontweight('normal')
+
+        g.tick_params(axis='both', which='both', length=0)
+
+        ax6.set_ylim(-3.5, 3.5)
+        ax6.set_xlabel('')
+        ax6.set_ylabel('')
+        ax6.legend_.remove()
+        ax6.axhline(
+            y=0.0, color='darkgray', linewidth=3.0,
+            linestyle='-', zorder=1, alpha=1.0
+            )
+        lines = g.lines[:-1]
+        channel_raster = lines
+        fig.add_subplot(ax6)
+
+        # difference heatmaps
+        ax7 = plt.Subplot(fig, inner[12:27, 11:33])
+        g = sns.heatmap(
+            data_to_consider['dif_heatmap'], square=True, vmin=None, vmax=None,
+            linecolor='w', linewidths=2.0, cbar=True,
+            annot=data_to_consider['qval_heatmap'], fmt='', cmap='cividis',
+            center=0.0, xticklabels=True, yticklabels=True,
+            annot_kws={'size': 20, 'fontweight': 'bold'}, ax=ax7,
+            )
+
+        g.tick_params(axis='both', which='both', length=0)
+
+        plt.gcf().axes[-1].yaxis.tick_right()
+        for item in plt.gcf().axes[-1].get_yticklabels():
+            item.set_size(10)
+            item.set_fontweight('normal')
+
+        g.set_xlabel('')
+        g.set_ylabel('')
+
+        for item in g.get_yticklabels():
+            item.set_color(tissue_color_dict[item.get_text()])
+            item.set_rotation(0)
+            item.set_size(14)
+            item.set_fontweight('bold')
+            item.set_position([0.0, 0.0])
+
+        tissue_abbr = {
+            'blood': 'Bl',
+            'spleen': 'Sp',
+            'nodes': 'Nd',
+            'marrow': 'Mw',
+            'thymus': 'Th'
+            }
+        ylabels = [
+            tissue_abbr[item.get_text()] for item in g.get_yticklabels()
+            ]
+        g.set_yticklabels(ylabels)
+
+        for item in g.get_xticklabels():
+            item.set_rotation(0)
+            item.set_size(14)
+            item.set_fontweight('normal')
+        ax7.set_title(
+            'gl261-naive', fontsize=14, fontweight='bold'
+            ).set_position([0.35, 1.01])
+        fig.add_subplot(ax7)
+
+        # ratio heatmaps
+        ax8 = plt.Subplot(fig, inner[12:27, 33:53])
+        g = sns.heatmap(
+            data_to_consider['ratio_heatmap'], square=True, vmin=None,
+            vmax=None, linecolor='w', linewidths=2.0, cbar=True,
+            annot=data_to_consider['qval_heatmap'], fmt='', cmap='cividis',
+            center=0.0, xticklabels=True, yticklabels=True,
+            annot_kws={'size': 20, 'fontweight': 'bold'}, ax=ax8,
+            )
+
+        g.tick_params(axis='both', which='both', length=0)
+
+        plt.gcf().axes[-1].yaxis.tick_right()
+        for item in plt.gcf().axes[-1].get_yticklabels():
+            item.set_size(10)
+            item.set_fontweight('normal')
+
+        g.set_xlabel('')
+        g.set_ylabel('')
+        g.set_yticklabels([])
+
+        for item in g.get_xticklabels():
+            item.set_rotation(0)
+            item.set_size(14)
+            item.set_fontweight('normal')
+        ax8.set_title(
+            'log' + '$_2$' + '(gl261/naive)', fontsize=14, fontweight='bold'
+            ).set_position([0.50, 1.01])
+        fig.add_subplot(ax8)
+
+        # replicate percent composition
+        ax9 = plt.Subplot(fig, inner[16:21, 61:99])
+        ax10 = plt.Subplot(fig, inner[23:28, 61:99])
+        ax11 = plt.Subplot(fig, inner[30:35, 61:99])
+        ax12 = plt.Subplot(fig, inner[37:42, 61:99])
+        ax13 = plt.Subplot(fig, inner[44:49, 61:99])
+
+        # sns.set(style='whitegrid')
+        num_conditions = len(data[('metadata', 'status')].unique())
+        num_time_points = len(data[('metadata', 'time_point')].unique())
+        num_replicates = len(data[('metadata', 'replicate')].unique())
+
+        # per condition hue scheme
+        list_of_lists = [
+            [i]*num_replicates for i in
+            range(num_conditions)] * num_time_points
+
+        # flatten list of lists
+        hue_list = [item for sublist in list_of_lists for item in sublist]
+
+        color_dict = categorical_cmap(
+            numUniqueSamples=len(set(hue_list)),
+            uniqueSampleNames=set(hue_list),
+            numCatagories=10,
+            reverseSampleOrder=False,
+            flipColorOrder=True,
+            cmap='tab10',
+            continuous=False
+            )
+
+        for e, (ax, tissue) in enumerate(zip(
+          [ax9, ax10, ax11, ax12, ax13],
+          sorted(data[('metadata', 'tissue')].unique()))):
+            sns.barplot(
+                data_to_consider['replicate_data_xlabels'],
+                data_to_consider[f'{tissue}_replicate_data'],
+                hue=hue_list, palette=color_dict, linewidth=0.25,
+                edgecolor='k', ax=ax,
+                )
+            ax.legend_.remove()
+            ax.grid(
+                axis='y', color='grey', linestyle='--',
+                linewidth=0.5, alpha=1.0
+                )
+            ax.set_ylabel('% composition', size=10, fontweight='bold')
+            ax.yaxis.set_label_coords(-0.07, .5)
+            ax.set_ylim(
+                0, data_to_consider['replicate_data_ymax']
+                )
+            ax.tick_params(axis='y', which='both', length=0)
+            ax.tick_params(axis='x', which='both', length=0)
+
+            ax.zorder = 1
+
+            for item in ax.get_yticklabels():
+                item.set_rotation(0)
+                item.set_size(10)
+                item.set_fontweight('normal')
+
+            ax14 = ax.twinx()
+            ax14.set_ylim(0, data_to_consider['replicate_data_ymax'])
+            ax14.set_yticklabels([])
+            ax14.set_ylabel(
+                tissue, color=tissue_color_dict[tissue],
+                fontweight='bold', size=18
+                )
+            ax14.yaxis.set_label_coords(-0.15, .5)
+            ax14.tick_params(axis='y', which='both', length=0)
+
+            if e == 0:
+                for item in ax.get_xticklabels():
+                    if 'naive' in str(item):
+                        item.set_color('k')
+                    if 'gl261' in str(item):
+                        item.set_color('k')
+                    item.set_rotation(0)
+                    item.set_size(8)
+                    item.set_fontweight('bold')
+                    item.set_visible(True)
+                    item.set_position([0, 1.15])
+                xlabels = [('' + item.get_text()[-1])
+                           for item in ax.get_xticklabels()]
+                ax.set_xticklabels(xlabels)
+
+            else:
+                for item in ax.get_xticklabels():
+                    item.set_visible(False)
+
+            for n, bar in enumerate(ax.patches):
+
+                # customize bar width
+                width = (len(data_to_consider['replicate_data_xlabels'])/75)
+                bar.set_width(width)
+
+                # adjust misaligned bars
+                if 48 < n < 96:
+                    bar_coord = bar.get_x()
+                    bar.set_x(bar_coord - 0.43)
+
+        fig.add_subplot(ax9)
+        fig.add_subplot(ax10)
+        fig.add_subplot(ax11)
+        fig.add_subplot(ax12)
+        fig.add_subplot(ax13)
+
+        for x in [15.45, 31.48]:
+            ax9.axvline(
+                x=x, ymin=0, ymax=1.48, c='grey',
+                linewidth=1, ls='--', zorder=3, clip_on=False
+                )
+            ax10.axvline(
+                x=x, ymin=0, ymax=1.41, c='grey',
+                linewidth=1, ls='--', zorder=3, clip_on=False
+                )
+            ax11.axvline(
+                x=x, ymin=0, ymax=1.41, c='grey',
+                linewidth=1, ls='--', zorder=3, clip_on=False
+                )
+            ax12.axvline(
+                x=x, ymin=0, ymax=1.41, c='grey',
+                linewidth=1, ls='--', zorder=3, clip_on=False
+                )
+            ax13.axvline(
+                x=x, ymin=0, ymax=1.41, c='grey',
+                linewidth=1, ls='--', zorder=3, clip_on=False
+                )
+
+        # show all four spines around replicate plots
+        for ax in [ax9, ax10, ax11, ax12, ax13]:
+            ax.spines['top'].set_linewidth(0.2)
+            ax.spines['bottom'].set_linewidth(0.2)
+            ax.spines['left'].set_linewidth(0.2)
+            ax.spines['right'].set_linewidth(0.2)
+
+        # do not show spines around the other axes
+        for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8]:
+            ax.spines['top'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+        return(scatter_raster, channel_raster)
+
+    dashboards_dir = os.path.join(config.figure_path, 'dashboards')
+    if not os.path.exists(dashboards_dir):
+        os.makedirs(dashboards_dir)
+
+    for i in range(len(dashboards_order)):
+        print(f'Plotting the {dashboards_order[i]} dashboard.')
+        fig = plt.figure(figsize=(19, 15))
+        outer = gridspec.GridSpec(1, 1)
+        scatter_raster, channel_raster = dash(fig, outer[0], i)
+        rasterize_list = scatter_raster + channel_raster
+
+        rasterize_and_save(
+            os.path.join(dashboards_dir,
+                         '%s_dashboard.pdf' % dashboards_order[i]),
+            rasterize_list, fig=fig, dpi=300,
+            savefig_kw={'bbox_inches': 'tight'})
+        plt.close('all')
+
+    print('Plotting the combined dashboards.')
+    fig = plt.figure(figsize=(190, 45))
+    outer = gridspec.GridSpec(2, 2, wspace=0.1, hspace=0.1)
+    rasterize_list = []
+    for i, oss in enumerate(outer):
+        scatter_raster, channel_raster = dash(fig, oss, i)
+        rasterize_list += scatter_raster + channel_raster
+    rasterize_and_save(
+        os.path.join(dashboards_dir, 'combined_dashboards.pdf'),
+        rasterize_list, fig=fig, dpi=200, savefig_kw={'bbox_inches': 'tight'})
+    plt.close('all')
+
+    dashboards_shlf.close()
 
     return data
