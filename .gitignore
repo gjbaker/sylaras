@@ -1,3 +1,14 @@
+# ignore files specific the the sylaras paper 
+CyCIF_kde_analysis.py
+cell_count_analysis
+correlations
+flowsom
+postbot
+script_sequence.rtf
+test_tiny.csv
+viability_analysis
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
