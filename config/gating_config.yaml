@@ -1,0 +1,23 @@
+# raw and compensated-viable-singlet (i.e. cmpvs) data paths
+raw_path: '/Users/greg/Desktop/sylaras_gl261/raw'
+cmpvs_path: '/Users/greg/Desktop/sylaras_gl261/cmpvs/'
+
+# paths to web driver and web brower
+webdriver_path: '/Users/greg/Downloads/geckodriver'
+webbrowser_path: '/Applications/Firefox.app'
+
+# antibody: [channel name, logicle width bias]
+channel_metadata:
+  b220: ['FJComp-PerCP-Cy5-5-A', 0.90]
+  cd11b: ['FJComp-BV786-A', 1.20]
+  cd11c: ['FJComp-Alexa Fluor 647-A', 0.90]
+  cd3e: ['FJComp-Alexa Fluor 488-A', 0.80]
+  cd4: ['FJComp-BV650-A', 1.20]
+  cd45: ['FJComp-AmCyan-A', 0.60]
+  cd49b: ['FJComp-PE-Cy7-A', 0.90]
+  cd8: ['FJComp-PE-Texas Red-A', 0.80]
+  fsc: ['FSC-A', None]
+  f480: ['FJComp-PE-A', 1.20]
+  ly6c: ['FJComp-APC-Cy7-A', 0.90]
+  ly6g: ['FJComp-BUV737-A', 0.90]
+  ssc: ['SSC-A', None]

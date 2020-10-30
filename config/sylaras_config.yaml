@@ -1,8 +1,6 @@
-data_path:  /Users/greg/projects/gbm_immunosuppression/cleaned_zeroed_data/combined_csv_file/data.csv
-# /Users/greg/projects/sylaras/test_tiny.csv  # 1000 cells
-# /Users/greg/projects/gbm_immunosuppression/cleaned_zeroed_data/combined_csv_file/data.csv
+data_path: /Users/greg/projects/sylaras/input/sylaras_input.parquet
 
-id_channels: [ly6c, cd11c, cd3e, cd45, cd11b, cd4, ly6g, f480, cd49b, cd8a, b220]
+id_channels: [b220, cd11b, cd11c, cd3e, cd4, cd45, cd49b, cd8a, f480, ly6c, ly6g]
 other_channels: [fsc, ssc]
 
 random_sample_size: 1000000
@@ -10,6 +8,7 @@ random_seed: 2
 
 kernel_low: 1
 kernel_high: 99
+
 # fraction of positive value range to jitter channel gates
 jitter: 0.05
 filter_choice: kernel  # choose from full, kernel, and kernel_bias
@@ -54,7 +53,7 @@ classes:
 alpha: 1.0
 
 # output_path
-output_path: '/Users/greg/projects/gbm_immunosuppression/postbot/data/logicle_e20/orthant_testing'
+output_path: /Users/greg/projects/sylaras/output
 
 # celltypes and markers of interest for scatter plot
 celltype1: B

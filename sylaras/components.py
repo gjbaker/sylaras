@@ -123,14 +123,18 @@ def open_dashboards(path, **kwargs):
 
 def categorical_cmap(numUniqueSamples, uniqueSampleNames, numCatagories,
                      reverseSampleOrder=False, flipColorOrder=False,
-                     cmap='tab10', continuous=False):
+                     cmap='seaborn_default', continuous=False):
     """
     Generate a categorical colormap of length numUniqueSamples.
-
+    cmap = 'tab10', 'seaborn_default', etc.
     """
-    # specify and apply color list index order
-    base_colors = plt.get_cmap(cmap)
-    channel_color_list = [base_colors(i) for i in range(base_colors.N)]
+    if cmap == 'seaborn_default':
+        channel_color_list = sns.color_palette()
+    else:
+        # specify and apply color list index order
+        base_colors = plt.get_cmap(cmap)
+        channel_color_list = [base_colors(i) for i in range(base_colors.N)]
+
     color_order = [3, 0, 2, 4, 8, 6, 1, 5, 9, 7]
     if flipColorOrder:
         color_order = np.flip(color_order)
@@ -299,8 +303,14 @@ def log_multiline(log_function, msg):
 @module
 def read_data(data, config):
     """Read the data file specified in the config."""
+
     # The data arg to this module is ignored.
-    data = pd.read_csv(config.data_path)
+    # csv or parquet file formats are accepted.
+
+    if str(config.data_path.resolve()).endswith('.csv'):
+        data = pd.read_csv(config.data_path)
+    elif str(config.data_path.resolve()).endswith('.parquet'):
+        data = pd.read_parquet(config.data_path)
 
     return data
 
@@ -379,7 +389,11 @@ def gate_bias(data, config):
         ax.set_xlabel('signal intensity')
         ax.get_yaxis().set_visible(True)
         ax.legend()
-        save_figure(config.figure_path / f"gate_{channel}.pdf")
+
+        save_figure(
+            config.figure_path /
+            'gates' /
+            f'gate_{channel}.pdf')
         plt.close('all')
 
     output_path = config.filtered_data_path
@@ -479,7 +493,7 @@ def frequent_cell_states(data, config):
 
     cell_states = []
     for s, total in enumerate(data.groupby(
-      [('metadata', 'tissue'), ('metadata', 'time_point'),
+      [('metadata', 'tissue'), ('metadata', 'timepoint'),
        ('metadata', 'replicate'), ('metadata', 'status')]
       )):
         for name, specific in total[1].groupby([('class', 'boolean')]):
@@ -518,13 +532,17 @@ def initialize_dashboards(data, config):
     celltype stats for aggregate plot."""
 
     path = config.dashboards_path
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(f'Path exists')
+        os.remove(os.path.join(path, 'dashboards.shelve'))
+
     dashboards_shlf = shelve.open(os.path.join(path, 'dashboards.shelve'))
 
     dashboards = {}
     for celltype in set(data[('class', 'boolean')]):
-        if celltype is not 'unclassified':
-
+        if celltype != 'unclassified':
             dashboards[celltype] = {}
             dashboards[celltype]['signature'] = (
                 sorted([j for j in [str(i) for i in config.classes[celltype]]
@@ -532,10 +550,8 @@ def initialize_dashboards(data, config):
                 )
             dashboards[celltype]['lineage'] = config.lineages[celltype]
             dashboards[celltype]['landmark'] = config.landmarks[celltype]
-
     dashboards_shlf.update(dashboards)
     dashboards_shlf.close()
-
     print('Dashboards dictionary initialized.')
 
     return data
@@ -585,7 +601,7 @@ def celltype_barcharts(data, config):
 
     metadata_cols = [
         i for i in data.columns if i[1] in
-        ['time_point', 'tissue', 'status', 'replicate']
+        ['timepoint', 'tissue', 'status', 'replicate']
         ]
 
     per_well_counts = (
@@ -614,18 +630,18 @@ def celltype_barcharts(data, config):
     plot_input.rename(columns={0: 'mean', 1: 'sem'}, inplace=True)
 
     # pad missing cell types with 0.0 for mean and SEM
-    padded_index = pd.MultiIndex.from_product(
+    idx = pd.MultiIndex.from_product(
         [classified_data['metadata', 'status'].unique(),
-         classified_data['metadata', 'time_point'].unique(),
+         classified_data['metadata', 'timepoint'].unique(),
          classified_data['metadata', 'tissue'].unique(),
          list(config.classes.keys())],
         names=[i for i in metadata_cols if i[1] != 'replicate'] +
         [('class', 'boolean')]
         )
-    plot_input = plot_input.reindex(padded_index, fill_value=0.0)
+    plot_input = plot_input.reindex(idx, fill_value=0.0).sort_index()
 
     for (tp_name, ts_name), group in plot_input.groupby(
-      [i for i in metadata_cols if i[1] in ['time_point', 'tissue']]
+      [i for i in metadata_cols if i[1] in ['timepoint', 'tissue']]
       ):
 
         print(
@@ -638,11 +654,22 @@ def celltype_barcharts(data, config):
             ascending=[True, False], inplace=True
             )
 
+        condition_color_dict = categorical_cmap(
+            numUniqueSamples=len(data[('metadata', 'status')].unique()),
+            uniqueSampleNames=sorted(data[('metadata', 'status')].unique()),
+            numCatagories=10,
+            reverseSampleOrder=True,
+            flipColorOrder=True,
+            cmap='seaborn_default',
+            continuous=False
+            )
+
         sns.set_style('whitegrid')
         g = group['mean'].plot(
             yerr=group['sem'], kind='bar', grid=False, width=0.78, linewidth=1,
-            figsize=(20, 10), color=['b', 'g'], alpha=0.6,
-            title=f'{ts_name}, {tp_name}'
+            figsize=(20, 10), color=[condition_color_dict['naive'],
+                                     condition_color_dict['gl261']],
+            alpha=1.0, title=f'{ts_name}, {tp_name}'
             )
 
         xlabels = [
@@ -671,8 +698,10 @@ def celltype_barcharts(data, config):
         g.set_title(g.get_title(), size=18, weight='bold', y=1.02)
 
         legend_elements = [
-            Patch(facecolor='b', edgecolor='b', label='naive'),
-            Patch(facecolor='g', edgecolor='g', label='gl261')
+            Patch(facecolor=condition_color_dict['naive'],
+                  edgecolor=condition_color_dict['naive'], label='naive'),
+            Patch(facecolor=condition_color_dict['gl261'],
+                  edgecolor=condition_color_dict['gl261'], label='gl261')
             ]
         legend_text_properties = {'size': 20, 'weight': 'bold'}
         plt.legend(
@@ -705,7 +734,7 @@ def celltype_stats(data, config):
 
     metadata_cols = [
         i for i in data.columns if i[1] in
-        ['time_point', 'tissue', 'status', 'replicate']
+        ['timepoint', 'tissue', 'status', 'replicate']
         ]
 
     per_well_counts = (
@@ -721,37 +750,53 @@ def celltype_stats(data, config):
         .apply(lambda x: (x / x.sum())*100)
         )
 
+    # pad per_well_percentages with Cartesian product of
+    # replicate, status, timepoint, tissue, and cell class
+    arrays = [
+        classified_data[('metadata', 'replicate')].unique(),
+        classified_data[('metadata', 'status')].unique(),
+        classified_data[('metadata', 'timepoint')].unique(),
+        classified_data[('metadata', 'tissue')].unique(),
+        classified_data[('class', 'boolean')].unique()
+        ]
+    idx = pd.MultiIndex.from_product(
+        arrays, names=[
+            ('metadata', 'replicate'),
+            ('metadata', 'status'),
+            ('metadata', 'timepoint'),
+            ('metadata', 'tissue'),
+            ('class', 'boolean')
+            ]
+        )
+
+    per_well_percentages = (
+        per_well_percentages
+        .reindex(idx, fill_value=0.0)
+        .sort_index()
+        )
+
     stats_df = pd.DataFrame(
-        columns=['time_point', 'tissue', 'cell_class', 'gl261_percent',
+        columns=['timepoint', 'tissue', 'cell_class', 'gl261_percent',
                  'naive_percent', 'dif', 'ratio', 't-stat', 'pval']
         )
     row_idx = 0
 
     for (tp_name, ts_name, ct_name), group in per_well_percentages.groupby(
-      [('metadata', 'time_point'), ('metadata', 'tissue'),
+      [('metadata', 'timepoint'), ('metadata', 'tissue'),
        ('class', 'boolean')]):
 
-        # ensure at least 2 replicates per treatment group
-        # (avoids runtime warnings and NaNs in statistics computation)
-        if all(
-            i >= 2 for i in list(group.groupby(('metadata', 'status')).size())
-          ):
+        t_stat, pval = ttest_ind(
+            group[:, 'gl261'], group[:, 'naive'],
+            axis=0, equal_var=True, nan_policy='propagate')
+        gl261_mean = group[:, 'gl261'].mean()
+        naive_mean = group[:, 'naive'].mean()
+        dif = (gl261_mean-naive_mean)
+        ratio = np.log2((0.01 + gl261_mean) / (0.01 + naive_mean))
 
-            if len(list(group.groupby(('metadata', 'status')).size())) >= 2:
-
-                t_stat, pval = ttest_ind(
-                    group[:, 'gl261'], group[:, 'naive'],
-                    axis=0, equal_var=True, nan_policy='propagate')
-
-                gl261_mean = group[:, 'gl261'].mean()
-                naive_mean = group[:, 'naive'].mean()
-                dif = (gl261_mean-naive_mean)
-                ratio = np.log2((0.01 + gl261_mean) / (0.01 + naive_mean))
-
-                stats_df.loc[row_idx] = [
-                    tp_name, ts_name, ct_name, gl261_mean, naive_mean,
-                    dif, ratio, t_stat, pval]
-                row_idx += 1
+        stats_df.loc[row_idx] = [
+            tp_name, ts_name, ct_name, gl261_mean, naive_mean,
+            dif, ratio, t_stat, pval]
+        row_idx += 1
 
     # perform FDR correction
     stats = importr('stats')
@@ -774,15 +819,15 @@ def celltype_stats(data, config):
 
     for name, group in stats_df.groupby(['cell_class']):
         group_dif = group.pivot_table(
-            index='tissue', columns='time_point', values='dif')
+            index='tissue', columns='timepoint', values='dif', dropna=False)
         dashboards_shlf[name]['dif_heatmap'] = group_dif
 
         group_ratio = group.pivot_table(
-            index='tissue', columns='time_point', values='ratio')
+            index='tissue', columns='timepoint', values='ratio', dropna=False)
         dashboards_shlf[name]['ratio_heatmap'] = group_ratio
 
         group_qval = group.pivot_table(
-            index='tissue', columns='time_point', values='qval')
+            index='tissue', columns='timepoint', values='qval', dropna=False)
         group_qval[group_qval > 0.05] = np.nan
         for col_idx in group_qval:
             series = group_qval[col_idx]
@@ -808,11 +853,11 @@ def celltype_stats(data, config):
         numCatagories=10,
         reverseSampleOrder=False,
         flipColorOrder=False,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False,
         )
 
-    for tp, group in plot_input.groupby(['time_point']):
+    for tp, group in plot_input.groupby(['timepoint']):
 
         group['hue'] = [tissue_color_dict[i] for i in group['tissue']]
         group['qval'] = -(group['qval'].apply(np.log10))
@@ -903,7 +948,7 @@ def vector_barcharts(data, config):
 
     metadata_cols = [
         i for i in data.columns if i[1] in
-        ['time_point', 'tissue', 'status', 'replicate']
+        ['timepoint', 'tissue', 'status', 'replicate']
         ]
 
     boolean_cols = [
@@ -968,7 +1013,7 @@ def vector_barcharts(data, config):
         )
 
     for (tp_name, ts_name), group in plot_input.groupby(
-      [i for i in metadata_cols if i[1] in ['time_point', 'tissue']]
+      [i for i in metadata_cols if i[1] in ['timepoint', 'tissue']]
       ):
 
         print(
@@ -1038,7 +1083,7 @@ def vector_stats(data, config):
 
     metadata_cols = [
         i for i in data.columns if i[1] in
-        ['time_point', 'tissue', 'status', 'replicate']
+        ['timepoint', 'tissue', 'status', 'replicate']
         ]
 
     boolean_cols = [
@@ -1074,13 +1119,13 @@ def vector_stats(data, config):
     per_well_percentages = per_well_percentages['percent']
 
     stats_df = pd.DataFrame(
-        columns=['time_point', 'tissue', 'vector', 'gl261_percent',
+        columns=['timepoint', 'tissue', 'vector', 'gl261_percent',
                  'naive_percent', 'dif', 'ratio', 't-stat', 'pval']
         )
     row_idx = 0
 
     for (tp_name, ts_name, v_name), group in per_well_percentages.groupby(
-      [('metadata', 'time_point'), ('metadata', 'tissue')] + ['vector']):
+      [('metadata', 'timepoint'), ('metadata', 'tissue')] + ['vector']):
 
         # ensure at least 2 replicates per treatment group
         # (avoids runtime warnings and NaNs in statistics computation)
@@ -1138,24 +1183,24 @@ def replicate_counts(data, config):
         numCatagories=10,
         reverseSampleOrder=False,
         flipColorOrder=False,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False
         )
 
     num_conditions = len(data[('metadata', 'status')].unique())
-    num_time_points = len(data[('metadata', 'time_point')].unique())
+    num_timepoints = len(data[('metadata', 'timepoint')].unique())
     num_replicates = len(data[('metadata', 'replicate')].unique())
 
     # per condition per timepoint hue scheme
     # list_of_lists = [
     #     [i]*num_replicates for i in
-    #     range(num_conditions * num_time_points)
+    #     range(num_conditions * num_timepoints)
     #     ]
 
     # per condition hue scheme
     list_of_lists = [
         [i]*num_replicates for i in
-        range(num_conditions)] * num_time_points
+        range(num_conditions)] * num_timepoints
 
     # flatten list of lists
     hue_list = [item for sublist in list_of_lists for item in sublist]
@@ -1166,7 +1211,7 @@ def replicate_counts(data, config):
         numCatagories=10,
         reverseSampleOrder=False,
         flipColorOrder=True,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False
         )
 
@@ -1200,12 +1245,12 @@ def replicate_counts(data, config):
                     (data[('metadata', 'tissue')] == tissue)
                     ]
 
-                for tp in sorted(data[('metadata', 'time_point')].unique()):
+                for tp in sorted(data[('metadata', 'timepoint')].unique()):
                     spec_ts_ct_tp = spec_ts_ct[
-                        (spec_ts_ct[('metadata', 'time_point')] == tp)
+                        (spec_ts_ct[('metadata', 'timepoint')] == tp)
                         ]
                     spec_denom_ts_ct_tp = spec_denom_ts_ct[
-                        (spec_denom_ts_ct[('metadata', 'time_point')] == tp)
+                        (spec_denom_ts_ct[('metadata', 'timepoint')] == tp)
                         ]
 
                     for status in sorted(
@@ -1228,10 +1273,13 @@ def replicate_counts(data, config):
                                 (spec_denom_ts_ct_tp_st[
                                     ('metadata', 'replicate')] == rep)
                                 ]
-                            y_percents.append(
-                                len(spec_ts_ct_tp_st_rp) /
-                                len(spec_denom_ts_ct_tp_st_rp)
-                                )
+                            try:
+                                y_percents.append(
+                                    len(spec_ts_ct_tp_st_rp) /
+                                    len(spec_denom_ts_ct_tp_st_rp)
+                                    )
+                            except ZeroDivisionError:
+                                y_percents.append(0.0)
 
                             x_labels.append(f'{status}, {tp}, {rep}')
 
@@ -1312,7 +1360,7 @@ def celltype_boxplots(data, config):
         numCatagories=10,
         reverseSampleOrder=True,
         flipColorOrder=True,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False
         )
 
@@ -1345,7 +1393,7 @@ def celltype_boxplots(data, config):
                             by=['variable', 'status'], ascending=[True, False])
                         )
                     figsize = (3.0, 10.0)
-                    ylim = (0.0, 250000)
+                    # ylim = (0.0, 250000)
                     dashboards_shlf[celltype]['scatter_signals'] = plot_input
 
                 fig, ax = plt.subplots(figsize=figsize)
@@ -1380,7 +1428,7 @@ def celltype_boxplots(data, config):
                 for legobj in legend.legendHandles:
                     legobj.set_linewidth(0)
 
-                plt.ylim(ylim)
+                # plt.ylim(ylim)
                 plt.tight_layout()
 
                 save_figure(
@@ -1407,7 +1455,7 @@ def celltype_boxplots_perChannel(data, config):
         numCatagories=10,
         reverseSampleOrder=True,
         flipColorOrder=True,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False
         )
 
@@ -1428,11 +1476,11 @@ def celltype_boxplots_perChannel(data, config):
 
         if channel in ['fsc', 'ssc']:
             level_0_idx = 'metadata'
-            ylim = (0.0, 250000)
+            # ylim = (0.0, 250000)
 
         else:
             level_0_idx = 'data'
-            ylim = (-3, 3)
+            # ylim = (-3, 3)
 
         plot_input = (
             channel_data[
@@ -1496,7 +1544,7 @@ def celltype_boxplots_perChannel(data, config):
         for legobj in legend.legendHandles:
             legobj.set_linewidth(0)
 
-        plt.ylim(ylim)
+        # plt.ylim(ylim)
         plt.tight_layout()
 
         save_figure(
@@ -1522,7 +1570,7 @@ def celltype_piecharts(data, config):
         numCatagories=10,
         reverseSampleOrder=False,
         flipColorOrder=False,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False
         )
 
@@ -1602,9 +1650,8 @@ def celltype_piecharts(data, config):
         celltype_cnt_total = celltype_cnts_per_tissue.sum()
         total_cells_in_dataset = len(data)
 
-        prcnt_of_total_cells = (
-            celltype_cnt_total/(total_cells_in_dataset)*100
-            )
+        prcnt_of_total_cells = (celltype_cnt_total/total_cells_in_dataset)*100
+
         radius = math.sqrt(prcnt_of_total_cells)*10
 
         dashboards_shlf[name]['percent'] = prcnt_of_total_cells
@@ -1670,14 +1717,14 @@ def stats_heatmaps(data, config):
             group = (
                 group
                 .pivot_table(
-                    index='cell_class', columns='time_point', values=k)
+                    index='cell_class', columns='timepoint', values=k)
                 .reindex(heatmap_row_order)
                 )
             group[np.isnan(group)] = 0.0
 
             qvals = celltype_stats[
                     celltype_stats['tissue'] == name].pivot_table(
-                        index='cell_class', columns='time_point',
+                        index='cell_class', columns='timepoint',
                         values='qval').reindex(heatmap_row_order)
             qvals[qvals > 0.05] = np.nan
 
@@ -1833,7 +1880,7 @@ def tissue_composition_plots(data, config):
         numCatagories=10,
         reverseSampleOrder=False,
         flipColorOrder=False,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False,
         )
 
@@ -1913,7 +1960,7 @@ def shannon_entropy_plot(data, config):
         numCatagories=10,
         reverseSampleOrder=False,
         flipColorOrder=False,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False,
         )
 
@@ -2012,7 +2059,7 @@ def plot_dashboards(data, config):
         reverseSampleOrder=True,
         flipColorOrder=True,
         numCatagories=10,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False,
         )
 
@@ -2022,7 +2069,7 @@ def plot_dashboards(data, config):
         numCatagories=10,
         reverseSampleOrder=False,
         flipColorOrder=False,
-        cmap='tab10',
+        cmap='seaborn_default',
         continuous=False
         )
 
@@ -2097,42 +2144,19 @@ def plot_dashboards(data, config):
             item.set_visible(False)
         fig.add_subplot(ax2)
 
-        # organize metadata text for replicate counts
-        time_point_offset = 0.0
-        status_offset = 0.0
-        for time_point in sorted(data[('metadata', 'time_point')].unique()):
-
-            for status in sorted(
-              data[('metadata', 'status')].unique(), reverse=True):
-
-                ax1.text(
-                    (0.629 + time_point_offset), -0.345, str(time_point),
-                    horizontalalignment='left',
-                    verticalalignment='center',
-                    fontsize=16, fontweight='bold', color='k'
-                    )
-                ax1.text(
-                    0.627 + status_offset, -0.47, str(status),
-                    horizontalalignment='left',
-                    verticalalignment='center',
-                    fontsize=13, fontweight='bold'
-                    ).set_color(condition_color_dict[status])
-                time_point_offset += 0.064
-                status_offset += 0.06
-
         # make legend for pvalue characters
         ax1.text(
-            0.14, -1.92, '(*) 0.01 < p <= 0.05', horizontalalignment='left',
+            0.14, -1.92, '(*) 0.01 < q <= 0.05', horizontalalignment='left',
             verticalalignment='top', fontsize=12, color='k', stretch=0,
             fontname='Arial', fontweight='bold'
             )
         ax1.text(
-            0.272, -1.92, '(**) 0.001 < p <= 0.01', horizontalalignment='left',
+            0.272, -1.92, '(**) 0.001 < q <= 0.01', horizontalalignment='left',
             verticalalignment='top', fontsize=12, color='k', stretch=0,
             fontname='Arial', fontweight='bold'
             )
         ax1.text(
-            0.42, -1.92, '(***) p <= 0.001', horizontalalignment='left',
+            0.42, -1.92, '(***) q <= 0.001', horizontalalignment='left',
             verticalalignment='top', fontsize=12, color='k', stretch=0,
             fontname='Arial', fontweight='bold'
             )
@@ -2141,7 +2165,7 @@ def plot_dashboards(data, config):
         fig.add_subplot(ax1)
 
         # pop. size
-        ax3 = plt.Subplot(fig, inner[2:15, 82:95])
+        ax3 = plt.Subplot(fig, inner[3:15, 82:95])
 
         patches, texts = ax3.pie(
             [100, 0], radius=radius, shadow=False,
@@ -2153,7 +2177,7 @@ def plot_dashboards(data, config):
             w.set_edgecolor('k')
 
         ax3.text(
-            -0.8, 0.96, 'pop. size',
+            -0.8, 0.85, 'pop. size',
             horizontalalignment='right', verticalalignment='bottom',
             fontsize=18, color='k', fontname='Arial',
             fontweight='bold'
@@ -2161,7 +2185,7 @@ def plot_dashboards(data, config):
 
         percent_txt = round(data_to_consider['percent'], 2)
         ax3.text(
-            2.0, 0.70, f'{percent_txt}%',
+            -0.8, 0.53, f'{percent_txt}%',
             horizontalalignment='right', verticalalignment='bottom',
             fontsize=16, color='k', stretch=0, fontname='Arial',
             fontweight='bold'
@@ -2169,7 +2193,7 @@ def plot_dashboards(data, config):
         fig.add_subplot(ax3)
 
         # tissue distribution
-        ax4 = plt.Subplot(fig, inner[2:14, 62:74])
+        ax4 = plt.Subplot(fig, inner[3:15, 62:74])
         colors = [tissue_color_dict[x] for x in data_to_consider['data'].index]
 
         patches, texts = ax4.pie(
@@ -2185,15 +2209,16 @@ def plot_dashboards(data, config):
             Rectangle((-1, -1), 2, 2, fill=None, alpha=0)
             )
         ax4.text(
-            -0.57, 0.9, 'tissue dist.',
+            -0.57, 0.85, 'tissue dist.',
             horizontalalignment='right', verticalalignment='bottom',
             fontsize=18, color='k', fontname='Arial',
             fontweight='bold'
             )
+
         fig.add_subplot(ax4)
 
         # scatter boxplots
-        ax5 = plt.Subplot(fig, inner[13:27, 5:11])
+        ax5 = plt.Subplot(fig, inner[13:27, 3:9])
 
         plot_input = data_to_consider['scatter_signals']
 
@@ -2221,17 +2246,18 @@ def plot_dashboards(data, config):
 
         g.tick_params(axis='both', which='both', length=0)
 
-        g.set_ylim(0, 250000)
+        # g.set_ylim(0, 250000)
 
-        ax5.set_yticklabels(g.get_yticks())
-        labels = ax5.get_yticklabels()
-        ylabels = [float(label.get_text()) for label in labels]
-        ylabels = ['%.1E' % Decimal(s) for s in ylabels if 0 <= s <= 250000]
-        ax5.set_yticklabels(ylabels)
+        # ax5.set_yticklabels(g.get_yticks())
+        # labels = ax5.get_yticklabels()
+        # ylabels = [float(label.get_text()) for label in labels]
+        # ylabels = ['%.1E' % Decimal(s) for s in ylabels if 0 <= s <= 250000]
+        # ax5.set_yticklabels(ylabels)
 
         ax5.set_xlabel('')
         ax5.set_ylabel('')
-        ax5.legend(loc=(-0.75, 1.08), prop={'weight': 'normal', 'size': 16})
+        ax5.legend(loc=(-0.4, 1.08), prop={'weight': 'normal', 'size': 16})
+
         ax5.axhline(
             y=0.0, color='darkgray', linewidth=5.0,
             linestyle='-', zorder=1, alpha=1.0
@@ -2274,7 +2300,7 @@ def plot_dashboards(data, config):
 
         g.tick_params(axis='both', which='both', length=0)
 
-        ax6.set_ylim(-3.5, 3.5)
+        # ax6.set_ylim(-3.5, 3.5)
         ax6.set_xlabel('')
         ax6.set_ylabel('')
         ax6.legend_.remove()
@@ -2287,7 +2313,8 @@ def plot_dashboards(data, config):
         fig.add_subplot(ax6)
 
         # difference heatmaps
-        ax7 = plt.Subplot(fig, inner[12:27, 11:33])
+        ax7 = plt.Subplot(fig, inner[12:27, 10:32])
+
         g = sns.heatmap(
             data_to_consider['dif_heatmap'], square=True, vmin=None, vmax=None,
             linecolor='w', linewidths=2.0, cbar=True,
@@ -2331,11 +2358,13 @@ def plot_dashboards(data, config):
             item.set_fontweight('normal')
         ax7.set_title(
             'gl261-naive', fontsize=14, fontweight='bold'
-            ).set_position([0.35, 1.01])
+            ).set_position([0.5, 1.01])
+
         fig.add_subplot(ax7)
 
         # ratio heatmaps
-        ax8 = plt.Subplot(fig, inner[12:27, 33:53])
+        ax8 = plt.Subplot(fig, inner[12:27, 32:52])
+
         g = sns.heatmap(
             data_to_consider['ratio_heatmap'], square=True, vmin=None,
             vmax=None, linecolor='w', linewidths=2.0, cbar=True,
@@ -2373,13 +2402,13 @@ def plot_dashboards(data, config):
 
         # sns.set(style='whitegrid')
         num_conditions = len(data[('metadata', 'status')].unique())
-        num_time_points = len(data[('metadata', 'time_point')].unique())
+        num_timepoints = len(data[('metadata', 'timepoint')].unique())
         num_replicates = len(data[('metadata', 'replicate')].unique())
 
         # per condition hue scheme
         list_of_lists = [
             [i]*num_replicates for i in
-            range(num_conditions)] * num_time_points
+            range(num_conditions)] * num_timepoints
 
         # flatten list of lists
         hue_list = [item for sublist in list_of_lists for item in sublist]
@@ -2390,7 +2419,7 @@ def plot_dashboards(data, config):
             numCatagories=10,
             reverseSampleOrder=False,
             flipColorOrder=True,
-            cmap='tab10',
+            cmap='seaborn_default',
             continuous=False
             )
 
@@ -2491,6 +2520,18 @@ def plot_dashboards(data, config):
                 linewidth=1, ls='--', zorder=3, clip_on=False
                 )
 
+        # organize timepoint metadata text for replicate counts
+        timepoint_offset = 0.0
+        for timepoint in sorted(data[('metadata', 'timepoint')].unique()):
+
+            ax1.text(
+                (0.675 + timepoint_offset), -0.37, str(timepoint),
+                horizontalalignment='center',
+                verticalalignment='center',
+                fontsize=16, fontweight='bold', color='k'
+                )
+            timepoint_offset += 0.125  # 0.15
+
         # show all four spines around replicate plots
         for ax in [ax9, ax10, ax11, ax12, ax13]:
             ax.spines['top'].set_linewidth(0.2)
@@ -2527,7 +2568,7 @@ def plot_dashboards(data, config):
 
     print('Plotting the combined dashboards.')
     fig = plt.figure(figsize=(190, 45))
-    outer = gridspec.GridSpec(2, 2, wspace=0.1, hspace=0.1)
+    outer = gridspec.GridSpec(4, 8, wspace=0.1, hspace=0.1)
     rasterize_list = []
     for i, oss in enumerate(outer):
         scatter_raster, channel_raster = dash(fig, oss, i)
