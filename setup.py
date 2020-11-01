@@ -11,7 +11,6 @@ requires = [
     'statsmodels>=0.12.0',
     'dataclasses>=0.7',
     'matplotlib>=3.3.2',
-    'numpy>=1.19.3',
     'pandas>=1.1.4',
     'pyarrow>=2.0.0',
     'PyYAML>=5.3.1',
@@ -42,6 +41,7 @@ setup(
     version=VERSION,
     description=DESCRIPTION,
     long_description=LONG_DESCRIPTION,
+    setup_requires=['numpy>=1.19.3'],
     packages=find_packages(),
     install_requires=requires,
     entry_points={
