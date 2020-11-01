@@ -25,8 +25,7 @@ from matplotlib.patches import Rectangle
 
 from scipy.stats import ttest_ind
 
-from rpy2.robjects.packages import importr
-from rpy2.robjects.vectors import FloatVector
+from statsmodels.stats.multitest import multipletests
 
 from inspect import getmembers, isclass
 
@@ -799,11 +798,17 @@ def celltype_stats(data, config):
         row_idx += 1
 
     # perform FDR correction
-    stats = importr('stats')
-    p_adjust = stats.p_adjust(
-        FloatVector(stats_df['pval'].tolist()),
-        method='BH')
-    stats_df['qval'] = p_adjust
+    mask = np.isfinite(stats_df['pval'])
+    pval_corrected = np.empty(stats_df['pval'].shape)
+    pval_corrected.fill(np.nan)
+    pval_corrected[mask] = multipletests(
+        pvals=stats_df['pval'][mask],
+        alpha=0.05,
+        method='fdr_bh',
+        is_sorted=False,
+        returnsorted=False
+        )[1]
+    stats_df['qval'] = pval_corrected
 
     stats_df.sort_values(
         by='qval', inplace=True, ascending=True
@@ -1150,11 +1155,17 @@ def vector_stats(data, config):
                 row_idx += 1
 
     # perform FDR correction
-    stats = importr('stats')
-    p_adjust = stats.p_adjust(
-        FloatVector(stats_df['pval'].tolist()),
-        method='BH')
-    stats_df['qval'] = p_adjust
+    mask = np.isfinite(stats_df['pval'])
+    pval_corrected = np.empty(stats_df['pval'].shape)
+    pval_corrected.fill(np.nan)
+    pval_corrected[mask] = multipletests(
+        pvals=stats_df['pval'][mask],
+        alpha=0.05,
+        method='fdr_bh',
+        is_sorted=False,
+        returnsorted=False
+        )[1]
+    stats_df['qval'] = pval_corrected
 
     stats_df.sort_values(
         by='qval', inplace=True, ascending=True
