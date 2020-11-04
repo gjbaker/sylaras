@@ -377,17 +377,14 @@ def gate_bias(data, config):
     sns.set(style='white')
     for channel in data['data']:
         logger.info('Plotting %s', channel)
-        ax = sns.distplot(
-            kernel[('data', channel)], kde=True, hist=False,
-            kde_kws={'lw': 2.0}, label=channel
+        sns.displot(
+            kernel[('data', channel)], kde=True,
+            label=channel
         )
-        ax.axvline(0, lw=1, c="black", label="gate \u00B1 jitter")
+        plt.axvline(0, lw=1, c="black", label="gate \u00B1 jitter")
         for f in (1, -1):
-            ax.axvline(bias_values[channel] * f, lw=1, ls=":", c="black")
-        ax.set_ylabel('density')
-        ax.set_xlabel('signal intensity')
-        ax.get_yaxis().set_visible(True)
-        ax.legend()
+            plt.axvline(bias_values[channel] * f, lw=1, ls=":", c="black")
+        plt.legend()
 
         save_figure(
             config.figure_path /
@@ -1303,7 +1300,7 @@ def replicate_counts(data, config):
 
                 maxima.append(ts_tp_st.max().values)
 
-                sns.barplot(x_labels, y_percents, hue=hue_list,
+                sns.barplot(x=x_labels, y=y_percents, hue=hue_list,
                             palette=color_dict, linewidth=0.25,
                             edgecolor='b', ax=ax)
                 ax.legend_.remove()
@@ -2438,8 +2435,8 @@ def plot_dashboards(data, config):
           [ax9, ax10, ax11, ax12, ax13],
           sorted(data[('metadata', 'tissue')].unique()))):
             sns.barplot(
-                data_to_consider['replicate_data_xlabels'],
-                data_to_consider[f'{tissue}_replicate_data'],
+                x=data_to_consider['replicate_data_xlabels'],
+                y=data_to_consider[f'{tissue}_replicate_data'],
                 hue=hue_list, palette=color_dict, linewidth=0.25,
                 edgecolor='k', ax=ax,
                 )

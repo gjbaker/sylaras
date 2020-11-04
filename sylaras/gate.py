@@ -31,9 +31,13 @@ config = yaml.safe_load(open(sys.argv[1]))
 
 raw_path = config['raw_path']
 cmpvs_path = config['cmpvs_path']
+zeros_path = config['zeros_path']
 webdriver_path = config['webdriver_path']
 webbrowser_path = config['webbrowser_path']
 channel_metadata = config['channel_metadata']
+
+# read zeros tables
+zeros = pd.read_csv(zeros_path)
 
 # add geckodriver and firefox to system path for saving bokeh html plots
 sys.path.append(webdriver_path)
@@ -54,9 +58,6 @@ if not os.path.exists(save_dir):
 
 # use common y-axis scale for all channel/tissue specific histograms
 sharey = False
-
-# read zeros tables
-zeros = pd.read_csv(sys.argv[2])
 
 # generate tissue- and channel- specific pdf pages
 # for their corresponding histograms

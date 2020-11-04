@@ -1,12 +1,15 @@
-# raw and compensated-viable-singlet (i.e. cmpvs) data paths
-raw_path: '/Users/greg/Desktop/sylaras_gl261/raw'
-cmpvs_path: '/Users/greg/Desktop/sylaras_gl261/cmpvs/'
+# specify paths to raw and compensated-viable-singlet (i.e. cmpvs)
+raw_path: '/Users/greg/Desktop/gl261_screen/raw/'
+cmpvs_path: '/Users/greg/Desktop/gl261_screen/cmpvs/'
 
-# paths to web driver and web brower
-webdriver_path: '/Users/greg/Downloads/geckodriver'
+# specify path to gates table
+zeros_path: '/Users/greg/Desktop/gl261_screen/zeros.csv'
+
+# specify paths to web brower and web driver
 webbrowser_path: '/Applications/Firefox.app'
+webdriver_path: '/Users/greg/Downloads/geckodriver'
 
-# antibody: [channel name, logicle width bias]
+# map antibodies to cmpvs channel names and Logicle width bias
 channel_metadata:
   b220: ['FJComp-PerCP-Cy5-5-A', 0.90]
   cd11b: ['FJComp-BV786-A', 1.20]

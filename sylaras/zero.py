@@ -10,14 +10,16 @@ config = yaml.safe_load(open(sys.argv[1]))
 
 channel_metadata = config['channel_metadata']
 cmpvs_path = config['cmpvs_path']
+zeros_path = config['zeros_path']
+
+# read zeros tables
+zeros = pd.read_csv(zeros_path)
 
 # define path to save directory
 save_dir = 'input'
 if not os.path.exists(save_dir):
     os.mkdir(save_dir)
 
-# read zeros tables
-zeros = pd.read_csv(sys.argv[2])
 
 # initialize dataframe to store zeroed data
 df = pd.DataFrame()
