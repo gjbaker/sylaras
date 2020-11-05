@@ -24,8 +24,6 @@ from svglib.svglib import svg2rlg
 from reportlab.graphics import renderPDF
 from reportlab.pdfgen import canvas
 
-from datetime import datetime
-
 # read gating_config.yaml
 config = yaml.safe_load(open(sys.argv[1]))
 
