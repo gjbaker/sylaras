@@ -364,7 +364,7 @@ for channel in sorted(channel_metadata.keys()):
             export_svgs(
                 p,
                 filename=os.path.join(save_dir, plot_name),
-                webdriver=web_driver, timeout=3600
+                webdriver=web_driver, timeout=25
                 )
 
             # import svg and assign label
