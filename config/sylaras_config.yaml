@@ -1,4 +1,8 @@
+# path to sylaras input data
 data_path: /Users/greg/projects/sylaras/input/sylaras_input.parquet
+
+# sylaras output path
+output_path: /Users/greg/projects/sylaras/output
 
 id_channels: [b220, cd11b, cd11c, cd3e, cd4, cd45, cd49b, cd8, f480, ly6c, ly6g]
 other_channels: [fsc, ssc]
@@ -51,9 +55,6 @@ classes:
 
 # cutoff for cell states populated by >1% of cells in one or more tissues
 alpha: 1.0
-
-# output_path
-output_path: /Users/greg/projects/sylaras/output
 
 # celltypes and markers of interest for scatter plot
 celltype1: B
