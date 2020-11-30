@@ -563,7 +563,7 @@ def check_celltypes(data, config):
          ('data', config.yaxis_marker),
          ('class', 'boolean')]][
         (data[('metadata', 'tissue')] == 'blood') &
-        (data[('metadata', 'status')] == 'naive') &
+        (data[('metadata', 'status')] == config.control_name) &
         ((data[('class', 'boolean')] == config.celltype1) |
          (data[('class', 'boolean')] == config.celltype2))]
 
@@ -663,8 +663,8 @@ def celltype_barcharts(data, config):
         sns.set_style('whitegrid')
         g = group['mean'].plot(
             yerr=group['sem'], kind='bar', grid=False, width=0.78, linewidth=1,
-            figsize=(20, 10), color=[condition_color_dict['naive'],
-                                     condition_color_dict['gl261']],
+            figsize=(20, 10), color=[condition_color_dict[config.control_name],
+                                     condition_color_dict[config.test_name]],
             alpha=1.0, title=f'{ts_name}, {tp_name}'
             )
 
@@ -694,10 +694,12 @@ def celltype_barcharts(data, config):
         g.set_title(g.get_title(), size=18, weight='bold', y=1.02)
 
         legend_elements = [
-            Patch(facecolor=condition_color_dict['naive'],
-                  edgecolor=condition_color_dict['naive'], label='naive'),
-            Patch(facecolor=condition_color_dict['gl261'],
-                  edgecolor=condition_color_dict['gl261'], label='gl261')
+            Patch(facecolor=condition_color_dict[config.control_name],
+                  edgecolor=condition_color_dict[config.control_name],
+                  label=config.control_name),
+            Patch(facecolor=condition_color_dict[config.test_name],
+                  edgecolor=condition_color_dict[config.test_name],
+                  label=config.test_name)
             ]
         legend_text_properties = {'size': 20, 'weight': 'bold'}
         plt.legend(
@@ -782,10 +784,10 @@ def celltype_stats(data, config):
        ('class', 'boolean')]):
 
         t_stat, pval = ttest_ind(
-            group[:, 'gl261'], group[:, 'naive'],
+            group[:, config.test_name], group[:, config.control_name],
             axis=0, equal_var=True, nan_policy='propagate')
-        gl261_mean = group[:, 'gl261'].mean()
-        naive_mean = group[:, 'naive'].mean()
+        gl261_mean = group[:, config.test_name].mean()
+        naive_mean = group[:, config.control_name].mean()
         dif = (gl261_mean-naive_mean)
         ratio = np.log2((0.01 + gl261_mean) / (0.01 + naive_mean))
 
@@ -1053,8 +1055,8 @@ def vector_barcharts(data, config):
         g.set_title(g.get_title(), size=18, weight='bold', y=1.02)
 
         legend_elements = [
-            Patch(facecolor='b', edgecolor='b', label='naive'),
-            Patch(facecolor='g', edgecolor='g', label='gl261')
+            Patch(facecolor='b', edgecolor='b', label=config.control_name),
+            Patch(facecolor='g', edgecolor='g', label=config.test_name)
             ]
         legend_text_properties = {'size': 20, 'weight': 'bold'}
         plt.legend(
@@ -1138,11 +1140,11 @@ def vector_stats(data, config):
             if len(list(group.groupby(('metadata', 'status')).size())) >= 2:
                 a = group
                 t_stat, pval = ttest_ind(
-                    group[:, 'gl261'], group[:, 'naive'],
+                    group[:, config.test_name], group[:, config.control_name],
                     axis=0, equal_var=True, nan_policy='propagate')
 
-                gl261_mean = group[:, 'gl261'].mean()
-                naive_mean = group[:, 'naive'].mean()
+                gl261_mean = group[:, config.test_name].mean()
+                naive_mean = group[:, config.control_name].mean()
                 dif = (gl261_mean-naive_mean)
                 ratio = np.log2((0.01 + gl261_mean) / (0.01 + naive_mean))
 
@@ -1504,7 +1506,7 @@ def celltype_boxplots_perChannel(data, config):
         # median values of control data.
         order = []
         for name, group in plot_input.groupby(['boolean', 'status']):
-            if name[1] == 'naive':
+            if name[1] == config.control_name:
                 order.append((name[0], group[channel].median()))
         if channel in ['fsc', 'ssc']:
             reverse = False
@@ -2472,9 +2474,9 @@ def plot_dashboards(data, config):
 
             if e == 0:
                 for item in ax.get_xticklabels():
-                    if 'naive' in str(item):
+                    if config.control_name in str(item):
                         item.set_color('k')
-                    if 'gl261' in str(item):
+                    if config.test_name in str(item):
                         item.set_color('k')
                     item.set_rotation(0)
                     item.set_size(8)

@@ -7,11 +7,15 @@ output_path: /Users/greg/projects/sylaras/output
 id_channels: [b220, cd11b, cd11c, cd3e, cd4, cd45, cd49b, cd8, f480, ly6c, ly6g]
 other_channels: [fsc, ssc]
 
-random_sample_size: 1000000
+random_sample_size: 10000000
 random_seed: 2
 
 kernel_low: 1
 kernel_high: 99
+
+# specify aliases for control and test subjects
+control_name: naive
+test_name: gl261
 
 # fraction of positive value range to jitter channel gates
 jitter: 0.05
@@ -53,7 +57,7 @@ classes:
   Precursor: [[~b220, ~cd11b, ~cd11c, ~cd3e, ~cd4, cd45, ~cd49b, ~cd8, ~f480, ~ly6c, ~ly6g], other, landmark population]
   CD45negPrecursor: [[~b220, ~cd11b, ~cd11c, ~cd3e, ~cd4, ~cd45, ~cd49b, ~cd8, ~f480, ~ly6c, ~ly6g], other]
 
-# cutoff for cell states populated by >1% of cells in one or more tissues
+# cutoff for cell states populated by > alpha% of cells in one or more tissues
 alpha: 1.0
 
 # celltypes and markers of interest for scatter plot

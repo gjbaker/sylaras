@@ -54,6 +54,8 @@ class Config:
         config.random_seed = int(data['random_seed'])
         config.kernel_low = float(data['kernel_low'])
         config.kernel_high = float(data['kernel_high'])
+        config.control_name = str(data['control_name'])
+        config.test_name = str(data['test_name'])
         config.jitter = float(data['jitter'])
         config.filter_choice = FilterChoice[data['filter_choice']]
         config._parse_classes(data['classes'])
