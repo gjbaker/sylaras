@@ -494,11 +494,27 @@ def frequent_cell_states(data, config):
       )):
         for name, specific in total[1].groupby([('class', 'boolean')]):
             specific.reset_index(inplace=True, drop=True)
-            if len(specific)/len(total) >= config.alpha:
-                cell_states.append(
-                    specific.loc[
-                        0, [('class', 'boolean')] +
-                        [('boolean', i) for i in config.id_channels]])
+            if name != 'unclassified':
+                if (len(specific)/len(total[1])*100) >= config.alpha:
+                    cell_states.append(
+                        specific.loc[
+                            0, [('class', 'boolean')] +
+                            [('boolean', i) for i in config.id_channels]])
+            else:
+                unique_vectors = specific.loc[
+                    :, 'boolean'].drop_duplicates()
+                for i in unique_vectors.index:
+                    temp = specific.copy()
+                    for j, k in zip(
+                      unique_vectors.columns,
+                      [v for v in unique_vectors.loc[i]]):
+                        temp = temp[(temp[('boolean', j)] == k)]
+                    if (len(temp)/len(total[1])*100) >= config.alpha:
+                        temp.reset_index(inplace=True, drop=True)
+                        cell_states.append(
+                            temp.loc[
+                                0, [('class', 'boolean')] +
+                                [('boolean', i) for i in config.id_channels]])
 
     unique_cell_states = (
         pd.DataFrame(cell_states)
