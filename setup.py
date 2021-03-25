@@ -12,7 +12,7 @@ requires = [
     'matplotlib==3.3.2',
     'pandas==1.1.4',
     'pyarrow==2.0.0',
-    'PyYAML==5.3.1',
+    'PyYAML==5.4',
     'scikit_learn==0.23.2',
     'scipy==1.5.3',
     'seaborn==0.11.0',
