@@ -8,7 +8,7 @@ requires = [
     'FlowKit==0.5.0',
     'reportlab==3.5.53',
     'statsmodels==0.12.0',
-    'dataclasses==0.7',
+    'dataclasses==0.6',
     'matplotlib==3.3.2',
     'pandas==1.1.4',
     'pyarrow==2.0.0',
@@ -16,6 +16,7 @@ requires = [
     'scikit_learn==0.23.2',
     'scipy==1.5.3',
     'seaborn==0.11.0',
+    'pyparsing==2.0.3'
 ]
 
 VERSION = '0.0.1'
