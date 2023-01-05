@@ -14,7 +14,10 @@ import flowkit as fk
 from sklearn.preprocessing import MinMaxScaler
 from seaborn import kdeplot
 
-from selenium.webdriver import Firefox, FirefoxOptions
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 from bokeh.models import ColumnDataSource, Band, Span
 from bokeh.io import export_svgs
@@ -42,10 +45,10 @@ sys.path.append(webdriver_path)
 sys.path.append(webbrowser_path)
 
 # initialize webdriver instance
-options = FirefoxOptions()
+options = Options()
 options.add_argument('--headless')
-web_driver = Firefox(
-    executable_path=webdriver_path,
+web_driver = webdriver.Chrome(
+    service=Service(ChromeDriverManager().install()),
     options=options
     )
 
@@ -145,10 +148,10 @@ for channel in sorted(channel_metadata.keys()):
                 source = 'xform'
             else:
                 source = 'raw'
-            sample_xform_data = sample.get_channel_data(
+            sample_xform_data = sample.get_channel_events(
                 channel_index=sample_channel_idx,
                 source=source, subsample=False)
-            fiducial_xform_data = fiducial.get_channel_data(
+            fiducial_xform_data = fiducial.get_channel_events(
                 channel_index=fiducial_channel_idx,
                 source=source, subsample=False)
 

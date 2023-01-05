@@ -1,13 +1,13 @@
 # specify paths to raw and compensated-viable-singlet (i.e. cmpvs)
-raw_path: '/Users/greg/Desktop/gl261_screen/raw/'
-cmpvs_path: '/Users/greg/Desktop/gl261_screen/cmpvs/'
+raw_path: '/Users/<user_name>/Desktop/gl261_screen/raw/'
+cmpvs_path: '/Users/<user_name>/Desktop/gl261_screen/cmpvs/'
 
 # specify path to gates table
-zeros_path: '/Users/greg/Desktop/gl261_screen/zeros.csv'
+zeros_path: '/Users/<user_name>/Desktop/gl261_screen/zeros.csv'
 
 # specify paths to web brower and web driver
-webbrowser_path: '/Applications/Firefox.app'
-webdriver_path: '/Users/greg/Downloads/geckodriver'
+webbrowser_path: '/Applications/Google Chrome.app'
+webdriver_path: '/Users/<user_name>/geckodriver'
 
 # map antibodies to cmpvs channel names and Logicle width bias
 channel_metadata:

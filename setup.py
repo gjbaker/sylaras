@@ -1,22 +1,25 @@
 from setuptools import setup, find_packages
 
 requires = [
-    'bokeh==2.2.2',
-    'svglib==1.0.1',
-    'selenium==3.141.0',
-    'natsort==7.0.1',
-    'FlowKit==0.5.0',
-    'reportlab==3.5.53',
-    'statsmodels==0.12.0',
-    'dataclasses==0.6',
-    'matplotlib==3.3.2',
-    'pandas==1.1.4',
-    'pyarrow==2.0.0',
-    'PyYAML==5.3.1',
-    'scikit_learn==0.23.2',
-    'scipy==1.5.3',
-    'seaborn==0.11.0',
-    'pyparsing==2.0.3'
+    'synapseclient',
+    'numpy>=1.19.5',
+    'bokeh<3.0.0',
+    'svglib',
+    'selenium',
+    'natsort',
+    'FlowKit',
+    'reportlab',
+    'statsmodels',
+    'dataclasses',
+    'matplotlib',
+    'pandas',
+    'pyarrow',
+    'PyYAML',
+    'scikit_learn',
+    'scipy',
+    'seaborn',
+    'pyparsing',
+    'webdriver-manager'
 ]
 
 VERSION = '0.0.1'
@@ -41,7 +44,7 @@ setup(
     version=VERSION,
     description=DESCRIPTION,
     long_description=LONG_DESCRIPTION,
-    setup_requires=['numpy==1.19.3'],
+    setup_requires=[],  # 'numpy==1.19.3'
     packages=find_packages(),
     install_requires=requires,
     entry_points={

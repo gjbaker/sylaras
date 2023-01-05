@@ -1,13 +1,15 @@
 # path to sylaras input data
-data_path: /Users/greg/projects/sylaras/input/sylaras_input.parquet
+data_path: /Users/<user_name>/projects/sylaras/input/sylaras_input.parquet
+# data_path: /Volumes/My Book/sylaras_data/data.csv
 
 # sylaras output path
-output_path: /Users/greg/projects/sylaras/output
+output_path: /Users/<user_name>/projects/sylaras/output
+# output_path: /Users/<user_name>/Dropbox (HMS)/for_ciro/output
 
 id_channels: [b220, cd11b, cd11c, cd3e, cd4, cd45, cd49b, cd8a, f480, ly6c, ly6g]
 other_channels: [fsc, ssc]
 
-random_sample_size: 10000000
+random_sample_size: 100000
 random_seed: 2
 
 kernel_low: 1
