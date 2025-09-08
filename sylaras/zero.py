@@ -75,11 +75,11 @@ for fname in fcs_files:
 
         # assign xform data as a variable
         if channel not in ['fsc', 'ssc']:
-            sample_data = sample.get_channel_data(
+            sample_data = sample.get_channel_events(
                 channel_index=sample_channel_idx,
                 source='xform', subsample=False)
         else:
-            sample_data = sample.get_channel_data(
+            sample_data = sample.get_channel_events(
                 channel_index=sample_channel_idx,
                 source='raw', subsample=False)
             sample_data = (

@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: If you use SYLARAS in your work, please cite it using the following metadata.
+title: SYLARAS
+authors:
+  - family-names: Baker
+    given-names: Gregory
+    orcid: https://orcid.org/0000-0002-5196-3961
+keywords:
+  - flow cytometry
+  - mass cytometry
+  - multi-organ immune profiling
+  - research software
+version: 0.0.45
+date-released: 2018-11-29
+license: MIT
+url: https://github.com/gjbaker/scales
